@@ -1,0 +1,5 @@
+VPN setup guide
+
+To work from home and connect securely to company systems, install the company VPN client on your laptop, sign in with your company email, and enable two factor authentication. Never use public Wi-Fi without the VPN turned on.
+
+If the VPN fails to connect, restart the client and contact the IT helpdesk.

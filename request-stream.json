@@ -1,0 +1,5 @@
+{
+    "max_tokens":  100,
+    "message":  "Explain machine learning in simple words",
+    "temperature":  0.2
+}
