@@ -157,5 +157,20 @@ class PostgresUsageRepository:
             "by_status": {r["status"]: int(r["n"]) for r in rows},
         }
 
+    async def by_client(self, since_hours: float = 24) -> list[dict]:
+        if not self._ready:
+            return []
+        rows = await self.db.pool.fetch(
+            "SELECT client, COUNT(*) AS n, COUNT(*) FILTER (WHERE status = 'error') AS errs, "
+            "AVG(latency_ms) AS avg_ms, COALESCE(SUM(prompt_tokens),0) AS p, "
+            "COALESCE(SUM(completion_tokens),0) AS c, EXTRACT(EPOCH FROM MAX(ts)) AS last_ts "
+            "FROM usage_log WHERE ts >= now() - ($1::float8 * interval '1 hour') GROUP BY client",
+            since_hours,
+        )
+        return [{"client": r["client"], "requests": int(r["n"]), "errors": int(r["errs"]),
+                 "avg_latency_ms": round(float(r["avg_ms"]), 1) if r["avg_ms"] is not None else None,
+                 "prompt_tokens": int(r["p"]), "completion_tokens": int(r["c"]),
+                 "last_ts": float(r["last_ts"]) if r["last_ts"] is not None else None} for r in rows]
+
     async def close(self) -> None:
         pass   # pool PostgresDatabase.close() band karta hai

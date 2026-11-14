@@ -1,0 +1,12 @@
+# --- .env (optional) -------------------------------------------------------------
+# Login session kitne ghante chale (default 168 = 7 din):
+# SESSION_TTL_HOURS=168
+
+# Frontend dev server alag port par ho (Vite) to hi:
+# CORS_ORIGINS=http://localhost:5173
+# Production (Nginx/Caddy same-origin) mein khali rakho.
+
+# Pehla admin banane ke liye (.env mein password NAHI):
+#   python scripts\create_user.py admin --role admin
+# Phir baaki log admin API se, ya:
+#   python scripts\create_user.py hr_ali --collections hr|policies

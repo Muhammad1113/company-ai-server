@@ -1,0 +1,6 @@
+# --- .env (optional) -------------------------------------------------------------
+# Ek user ki max active chat requests (0 = limit nahi). Default 2:
+# INFERENCE_MAX_PER_CLIENT=2
+
+# RAG: is score se kam chunks ignore. Pehle 0 rakho; rag_eval.py ke scores dekh kar tune karo.
+# RAG_MIN_SCORE=0.0

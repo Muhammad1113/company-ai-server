@@ -3,11 +3,17 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Response
+from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.api.deps import get_client
+from app.api.routes.admin import router as admin_router
+from app.api.routes.auth import router as auth_router
 from app.api.routes.chat import router as chat_router
+from app.api.routes.company import router as company_router
+from app.api.routes.conversations import router as conversations_router
 from app.api.routes.rag import router as rag_router
+from app.api.routes.regulatory import router as regulatory_router
 from app.api.routes.usage import router as usage_router
 from app.core.config import settings
 from app.core.request_context import (
@@ -32,6 +38,17 @@ async def lifespan(app: FastAPI):
     await provider.startup()
     await container.startup()
 
+    _a = container.agent
+    logger.info(
+        "agent=%s web_search=%s policy=%s classifier=%s latin_only=%s version=%s",
+        _a is not None,
+        bool(_a and _a.web),
+        settings.WEB_SEARCH_POLICY,
+        bool(_a and _a.classify),
+        settings.LATIN_ONLY_OUTPUT,
+        settings.APP_VERSION,
+    )
+
     app.state.inference_provider = provider
 
     yield
@@ -50,6 +67,18 @@ app = FastAPI(
 )
 
 app.add_middleware(RequestContextMiddleware)
+
+# Sirf jab frontend alag origin par ho (dev). Production: same-origin proxy.
+_cors_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+        expose_headers=["X-Request-ID", "X-Cache"],
+        max_age=600,
+    )
 
 
 # NOTE: /metrics abhi open hai. Production mein sirf internal network /
@@ -108,9 +137,14 @@ async def readiness():
 
 
 # Router-level auth: koi naya endpoint bina auth ke nahi rahega.
-for router in (chat_router, rag_router, usage_router):
+for router in (
+    chat_router, rag_router, usage_router, conversations_router, admin_router, company_router, regulatory_router
+):
     app.include_router(
         router,
         prefix=settings.API_V1_PREFIX,
         dependencies=[Depends(get_client)],
     )
+
+# auth router: /auth/login public hai (endpoints khud Depends lagate hain)
+app.include_router(auth_router, prefix=settings.API_V1_PREFIX)

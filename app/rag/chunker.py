@@ -41,3 +41,14 @@ def chunk_text(text: str, size: int = 800, overlap: int = 100) -> list[str]:
         chunks.append(current)
 
     return chunks
+
+
+def chunk_pages(text: str, size: int = 800, overlap: int = 100) -> list[tuple[int | None, str]]:
+    """[(page, chunk)]. Text mein \\f (PDF page break) ho to har page alag chunk hota hai aur page number milta hai;
+    warna page None (DOCX/TXT)."""
+    if "\f" not in (text or ""):
+        return [(None, c) for c in chunk_text(text, size, overlap)]
+    out: list[tuple[int | None, str]] = []
+    for number, page_text in enumerate(text.split("\f"), start=1):
+        out.extend((number, c) for c in chunk_text(page_text, size, overlap))
+    return out

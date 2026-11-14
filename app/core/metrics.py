@@ -61,3 +61,9 @@ RAG_QUERIES = Counter(
     "RAG queries",
     ["llm_called"]
 )
+
+
+LOGIN_FAILURES = Counter(
+    "company_ai_login_failures_total",
+    "Failed login attempts"
+)

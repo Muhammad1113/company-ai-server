@@ -10,6 +10,16 @@ def _dot(a: list[float], b: list[float]) -> float:
     return sum(map(operator.mul, a, b))
 
 
+def summarize_metadata(meta: dict | None) -> dict:
+    """Document list ke liye: upload ke waqt ka metadata (type, pages, chars) ko saaf shakl mein."""
+    meta = meta or {}
+    out: dict = {"type": meta.get("type") or None}
+    for key in ("pages", "chars"):
+        raw = meta.get(key)
+        out[key] = int(raw) if str(raw).isdigit() else None
+    return out
+
+
 class JsonVectorStore:
     """
     Chhota brute-force cosine store (vectors normalized => dot product).
@@ -95,6 +105,26 @@ class JsonVectorStore:
             if removed:
                 self._persist()
         return removed
+
+    def list_documents(self, collection) -> list[dict]:
+        """[{doc_id, chunks, type, pages, chars}] (naam ke hisaab se)."""
+        with self._lock:
+            docs: dict[str, dict] = {}
+            for it in self._items:
+                if it["collection"] != collection:
+                    continue
+                d = docs.setdefault(it["doc_id"], {"chunks": 0, "meta": it.get("metadata") or {}})
+                d["chunks"] += 1
+        return [
+            {"doc_id": doc_id, "chunks": d["chunks"], **summarize_metadata(d["meta"])}
+            for doc_id, d in sorted(docs.items(), key=lambda kv: kv[0].lower())
+        ]
+
+    def get_document_chunks(self, doc_id, collection) -> list[str]:
+        """Admin "View": ek document ke chunk texts, chunk_index ke hisaab se."""
+        with self._lock:
+            rows = [it for it in self._items if it["doc_id"] == doc_id and it["collection"] == collection]
+        return [it["text"] for it in sorted(rows, key=lambda it: it["chunk_index"])]
 
     def stats(self) -> dict:
         with self._lock:

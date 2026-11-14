@@ -5,6 +5,7 @@ from fastapi import HTTPException
 
 from app.core.config import settings
 from app.core.concurrency import InferenceQueueFull, InferenceQueueTimeout
+from app.core.fairness import ClientBusy
 
 logger = logging.getLogger("company_ai.api")
 
@@ -17,6 +18,13 @@ def map_error(exc: Exception) -> HTTPException | None:
             status_code=429,
             detail="Server queue is full. Please retry shortly.",
             headers={"Retry-After": str(settings.RETRY_AFTER_SECONDS)},
+        )
+
+    if isinstance(exc, ClientBusy):
+        return HTTPException(
+            status_code=429,
+            detail="You already have requests in progress. Wait for them to finish.",
+            headers={"Retry-After": "2"},
         )
 
     if isinstance(exc, InferenceQueueTimeout):

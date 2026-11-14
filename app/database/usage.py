@@ -111,6 +111,23 @@ class UsageRepository:
             return {"client": client, "requests": 0, "by_status": {}}
         return await asyncio.to_thread(self._summary_sync, client, since_hours)
 
+    def _by_client_sync(self, since_hours: float) -> list[dict]:
+        since = time.time() - since_hours * 3600
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT client, COUNT(*), SUM(CASE WHEN status='error' THEN 1 ELSE 0 END), "
+                "AVG(latency_ms), COALESCE(SUM(prompt_tokens),0), COALESCE(SUM(completion_tokens),0), MAX(ts) "
+                "FROM usage_log WHERE ts>=? GROUP BY client", (since,)).fetchall()
+        return [{"client": r[0], "requests": r[1], "errors": r[2] or 0,
+                 "avg_latency_ms": round(r[3], 1) if r[3] is not None else None,
+                 "prompt_tokens": r[4], "completion_tokens": r[5], "last_ts": r[6]} for r in rows]
+
+    async def by_client(self, since_hours: float = 24) -> list[dict]:
+        """Super admin overview: har client ki ginti/latency. Sawal-jawab ka content yahan hota hi nahi."""
+        if self._conn is None:
+            return []
+        return await asyncio.to_thread(self._by_client_sync, since_hours)
+
     async def close(self) -> None:
         if self._conn is not None:
             conn, self._conn = self._conn, None

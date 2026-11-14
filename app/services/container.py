@@ -2,19 +2,29 @@
 Saare shared singletons ek jagah. Routes `container.x` attribute access
 karte hain (import-time copy nahi), taake tests monkeypatch kar saken.
 """
+import asyncio
 import logging
 
 from app.core.cache import MemoryTTLCache, RedisCache, ResponseCache
 from app.core.config import settings
+from app.core.fairness import ClientConcurrencyLimiter
 from app.core.ratelimit import TokenBucketLimiter
 from app.core.security import parse_api_keys
+from app.database.accounts import AccountsRepository
+from app.database.conversations import ConversationRepository
 from app.database.postgres import PostgresDatabase, PostgresUsageRepository
+from app.database.regulatory import RegulatoryRepository
 from app.database.usage import UsageRepository
 from app.rag.embeddings import HashingEmbedder, LlamaCppEmbedder
 from app.rag.pgvector_store import PgVectorStore
 from app.rag.service import RagService
 from app.rag.store import JsonVectorStore
+from app.services.agent import Agent, make_llm_classifier
 from app.services.chat_service import chat_service
+from app.services.ecfr import ECFRClient
+from app.services.openfda import OpenFDAClient
+from app.services.regulatory import RegulatoryService
+from app.services.websearch import WebSearch
 
 logger = logging.getLogger("company_ai.container")
 
@@ -72,6 +82,7 @@ def _build_rag():
         chunk_overlap=settings.RAG_CHUNK_OVERLAP,
         top_k=settings.RAG_TOP_K,
         max_context_chars=settings.RAG_MAX_CONTEXT_CHARS,
+        min_score=settings.RAG_MIN_SCORE,
     )
 
 
@@ -94,6 +105,60 @@ usage_repo = (
 )
 
 rag_service = _build_rag()
+
+
+def _build_agent():
+    if not settings.AGENT_ENABLED:
+        return None
+    web = None
+    if settings.WEB_SEARCH_ENABLED:
+        split = lambda v: tuple(x.strip() for x in v.split(",") if x.strip())  # noqa: E731
+        web = WebSearch(
+            max_results=settings.WEB_SEARCH_MAX_RESULTS,
+            timeout=settings.WEB_SEARCH_TIMEOUT,
+            cache_ttl=settings.WEB_SEARCH_CACHE_TTL,
+            blocked_domains=split(settings.WEB_SEARCH_BLOCKED_DOMAINS),
+            providers=split(settings.WEB_SEARCH_PROVIDERS),
+            searxng_url=settings.SEARXNG_URL,
+            proxy=settings.WEB_SEARCH_PROXY,
+            contact=settings.WEB_SEARCH_CONTACT,
+            privacy_terms=settings.WEB_SEARCH_PRIVACY_TERMS,
+            per_user_per_minute=settings.WEB_SEARCH_PER_USER_PER_MINUTE,
+            global_per_minute=settings.WEB_SEARCH_GLOBAL_PER_MINUTE,
+            max_concurrent=settings.WEB_SEARCH_MAX_CONCURRENT,
+            cooldown_base=settings.WEB_SEARCH_COOLDOWN_SECONDS,
+        )
+    classify = (
+        make_llm_classifier(chat_service.generate, settings.AGENT_CLASSIFIER_TIMEOUT)
+        if settings.AGENT_CLASSIFIER_ENABLED else None
+    )
+    return Agent(web, timezone=settings.AGENT_TIMEZONE, policy=settings.WEB_SEARCH_POLICY, classify=classify)
+
+
+agent = _build_agent()
+
+# Accounts + conversations abhi SQLite (DATABASE_PATH). Postgres versions agle step mein.
+accounts_repo = AccountsRepository(
+    settings.DATABASE_PATH, session_ttl_hours=settings.SESSION_TTL_HOURS
+)
+conversations_repo = ConversationRepository(settings.DATABASE_PATH)
+regulatory_repo = RegulatoryRepository(settings.DATABASE_PATH)
+regulatory_service = RegulatoryService(
+    regulatory_repo,
+    rag_service,
+    settings.REG_ARCHIVE_DIR,
+    OpenFDAClient(settings.OPENFDA_BASE_URL, settings.OPENFDA_API_KEY, settings.OPENFDA_LIMIT, settings.OPENFDA_TIMEOUT),
+    max_codes=settings.OPENFDA_MAX_CODES,
+    max_pages=settings.RAG_MAX_PDF_PAGES,
+    max_chars=settings.RAG_MAX_FILE_CHARS,
+    ecfr_client=ECFRClient(settings.ECFR_BASE_URL, settings.ECFR_TITLE, settings.ECFR_TIMEOUT),
+    max_parts=settings.ECFR_MAX_PARTS,
+)
+_auto_sync_task = None
+client_limiter = ClientConcurrencyLimiter(settings.INFERENCE_MAX_PER_CLIENT)
+login_limiter = TokenBucketLimiter(
+    settings.LOGIN_ATTEMPTS_PER_MINUTE, settings.LOGIN_BURST
+)
 
 
 async def _probe_embedding_dimension():
@@ -123,6 +188,9 @@ async def startup():
         await db.connect()
 
     await usage_repo.init()
+    await accounts_repo.init()
+    await conversations_repo.init()
+    await regulatory_repo.init()
 
     init_store = getattr(rag_service.store, "init", None)
     if init_store is not None:
@@ -130,17 +198,36 @@ async def startup():
 
     await _probe_embedding_dimension()
 
-    if not api_keys:
+    global _auto_sync_task
+    if settings.OPENFDA_AUTO_SYNC_HOURS > 0:
+        _auto_sync_task = asyncio.create_task(regulatory_service.auto_loop(settings.OPENFDA_AUTO_SYNC_HOURS))
+
+    if not api_keys and not accounts_repo.has_users:
         logger.warning(
-            "API_KEYS is empty: authentication is DISABLED (development mode)"
+            "No API_KEYS and no user accounts: authentication is DISABLED "
+            "(development mode). Create a user: python scripts/create_user.py"
         )
+
+
+async def _close_web():
+    agent.web.close()
+
+
+async def _stop_auto_sync():
+    if _auto_sync_task is not None:
+        _auto_sync_task.cancel()
 
 
 async def shutdown():
     closers = [
+        _stop_auto_sync,
+        (lambda: _close_web()) if agent and agent.web else None,
         response_cache.close if response_cache else None,
         rag_service.close,
         usage_repo.close,
+        accounts_repo.close,
+        conversations_repo.close,
+        regulatory_repo.close,
         db.close if db else None,        # sab se aakhir mein
     ]
     for closer in closers:

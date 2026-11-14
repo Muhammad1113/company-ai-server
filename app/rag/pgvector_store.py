@@ -9,6 +9,8 @@ pgvector-backed vector store (async). JsonVectorStore jaisa interface.
 import json
 import logging
 
+from app.rag.store import summarize_metadata
+
 logger = logging.getLogger("company_ai.pgvector")
 
 
@@ -130,6 +132,29 @@ class PgVectorStore:
             doc_id, collection,
         )
         return int(status.split()[-1])          # "DELETE 3" -> 3
+
+    async def list_documents(self, collection) -> list[dict]:
+        rows = await self.db.pool.fetch(
+            "SELECT doc_id, COUNT(*) AS chunks, "
+            "(array_agg(metadata::text ORDER BY chunk_index))[1] AS metadata "
+            "FROM rag_chunks WHERE collection = $1 GROUP BY doc_id ORDER BY lower(doc_id)",
+            collection,
+        )
+        out = []
+        for r in rows:
+            try:
+                meta = json.loads(r["metadata"]) if r["metadata"] else {}
+            except ValueError:
+                meta = {}
+            out.append({"doc_id": r["doc_id"], "chunks": int(r["chunks"]), **summarize_metadata(meta)})
+        return out
+
+    async def get_document_chunks(self, doc_id, collection) -> list[str]:
+        rows = await self.db.pool.fetch(
+            "SELECT text FROM rag_chunks WHERE collection = $1 AND doc_id = $2 ORDER BY chunk_index",
+            collection, doc_id,
+        )
+        return [r["text"] for r in rows]
 
     async def stats(self) -> dict:
         rows = await self.db.pool.fetch(

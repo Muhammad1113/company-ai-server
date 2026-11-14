@@ -1,11 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException
+import asyncio
+import re
+from pathlib import PurePath
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from app.api.deps import get_client, require_admin
+from app.api.deps import ensure_collection_access, ensure_collection_manage, get_client, require_admin
 from app.api.errors import raise_mapped
+from app.core import tenancy
 from app.core.config import settings
 from app.core.metrics import RAG_QUERIES
 from app.core.security import ClientInfo
+from app.rag.extractors import ExtractionError, extract_text
 from app.services import container
 
 router = APIRouter(prefix="/rag", tags=["RAG"])
@@ -29,7 +35,8 @@ class QueryRequest(BaseModel):
 
 
 @router.post("/ingest")
-async def ingest(request: IngestRequest, _: ClientInfo = Depends(require_admin)):
+async def ingest(request: IngestRequest, client: ClientInfo = Depends(get_client)):
+    ensure_collection_manage(client, request.collection)
     try:
         return await container.rag_service.ingest(
             request.doc_id, request.text, request.collection, request.metadata
@@ -46,9 +53,80 @@ class SearchRequest(BaseModel):
     top_k: int = Field(default=settings.RAG_TOP_K, ge=1, le=20)
 
 
+async def _read_limited(request: Request, limit_bytes: int) -> bytes:
+    """Upload body ko limit ke saath padho (memory DoS se bachne ke liye)."""
+    mb = limit_bytes / (1024 * 1024)
+
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > limit_bytes:
+        raise HTTPException(413, f"File exceeds the {mb:g} MB limit")
+
+    chunks, total = [], 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > limit_bytes:
+            raise HTTPException(413, f"File exceeds the {mb:g} MB limit")
+        chunks.append(chunk)
+
+    return b"".join(chunks)
+
+
+def _doc_id_from(filename: str) -> str:
+    stem = PurePath(filename).stem
+    return re.sub(r"[^\w.\-:]", "_", stem)[:200] or "document"
+
+
+@router.post("/ingest-file")
+async def ingest_file(
+    request: Request,
+    filename: str = Query(min_length=1, max_length=255),
+    collection: str = Query(default="default", max_length=100, pattern=_ID),
+    doc_id: str | None = Query(default=None, max_length=200, pattern=_ID),
+    client: ClientInfo = Depends(get_client),
+):
+    """
+    Raw body upload (.txt .md .pdf .docx):
+      curl.exe -X POST "http://host/api/v1/rag/ingest-file?filename=policy.pdf&collection=hr"
+               -H "Authorization: Bearer KEY" --data-binary "@policy.pdf"
+    """
+    ensure_collection_manage(client, collection)      # body padhne se PEHLE (bina permission ke upload nahi)
+    data = await _read_limited(
+        request, int(settings.RAG_MAX_UPLOAD_MB * 1024 * 1024)
+    )
+
+    try:
+        text, meta = await asyncio.to_thread(
+            extract_text,
+            filename,
+            data,
+            max_pages=settings.RAG_MAX_PDF_PAGES,
+            max_chars=settings.RAG_MAX_FILE_CHARS,
+        )
+    except ExtractionError as exc:
+        raise HTTPException(exc.status, str(exc))
+
+    try:
+        result = await container.rag_service.ingest(
+            doc_id or _doc_id_from(filename), text, collection, meta
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception as exc:
+        raise_mapped(exc)
+
+    return {
+        **result,
+        "type": meta["type"],
+        "chars": int(meta["chars"]),
+        "pages": int(meta["pages"]) if "pages" in meta else None,
+        "empty_pages": int(meta["empty_pages"]) if "empty_pages" in meta else None,
+    }
+
+
 @router.post("/search")
-async def search(request: SearchRequest, _: ClientInfo = Depends(get_client)):
+async def search(request: SearchRequest, client: ClientInfo = Depends(get_client)):
     """Retrieval only: GPU/LLM use nahi hota. Eval aur debugging ke liye."""
+    ensure_collection_access(client, request.collection)
     try:
         hits = await container.rag_service.search(
             request.question, request.collection, request.top_k
@@ -71,7 +149,8 @@ async def search(request: SearchRequest, _: ClientInfo = Depends(get_client)):
 
 
 @router.post("/query")
-async def query(request: QueryRequest, _: ClientInfo = Depends(get_client)):
+async def query(request: QueryRequest, client: ClientInfo = Depends(get_client)):
+    ensure_collection_access(client, request.collection)
     try:
         result = await container.rag_service.query(
             request.question,
@@ -87,12 +166,44 @@ async def query(request: QueryRequest, _: ClientInfo = Depends(get_client)):
     return result
 
 
+@router.get("/documents")
+async def list_documents(
+    collection: str = Query(default="default", max_length=100, pattern=_ID),
+    client: ClientInfo = Depends(get_client),
+):
+    """Admin panel: collection ke documents (delete button ke liye). Khali collection => khali list."""
+    ensure_collection_manage(client, collection)
+    try:
+        docs = await container.rag_service.list_documents(collection)
+    except Exception as exc:
+        raise_mapped(exc)
+    return {"collection": collection, "documents": docs}
+
+
+@router.get("/documents/{doc_id}/content")
+async def document_content(
+    doc_id: str,
+    collection: str = Query(default="default", max_length=100, pattern=_ID),
+    client: ClientInfo = Depends(get_client),
+):
+    """Admin panel "View": document ka text (parts mein). Sirf wohi jo is collection ko manage kar sakta hai."""
+    ensure_collection_manage(client, collection)
+    try:
+        parts = await container.rag_service.get_document_chunks(doc_id, collection)
+    except Exception as exc:
+        raise_mapped(exc)
+    if not parts:
+        raise HTTPException(404, "Document not found")
+    return {"doc_id": doc_id, "collection": collection, "parts": [{"index": i + 1, "text": t} for i, t in enumerate(parts)]}
+
+
 @router.delete("/documents/{doc_id}")
 async def delete_document(
     doc_id: str,
-    collection: str = "default",
-    _: ClientInfo = Depends(require_admin),
+    collection: str = Query(default="default", max_length=100, pattern=_ID),
+    client: ClientInfo = Depends(get_client),
 ):
+    ensure_collection_manage(client, collection)
     removed = await container.rag_service.delete(doc_id, collection)
     if removed == 0:
         raise HTTPException(404, "Document not found")
@@ -102,3 +213,20 @@ async def delete_document(
 @router.get("/stats")
 async def stats(_: ClientInfo = Depends(require_admin)):
     return await container.rag_service.stats()
+
+
+@router.get("/collections")
+async def collections(client: ClientInfo = Depends(get_client)):
+    """Frontend dropdown: jin collections tak is user ki access hai."""
+    stats = await container.rag_service.stats()
+    counts = {n: d for n, d in stats["collections"].items() if client.can_access(n)}
+    if client.company:                       # company ki apni collection khali ho tab bhi dikhao (upload ke liye)
+        counts.setdefault(tenancy.company_collection(client.company), 0)
+    return {
+        "collections": [
+            {"name": name, "documents": docs,
+             "scope": "shared" if tenancy.is_shared(name) else "company" if tenancy.owner_of(name) else "legacy",
+             "can_manage": client.can_manage(name)}
+            for name, docs in sorted(counts.items())
+        ]
+    }
