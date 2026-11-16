@@ -99,6 +99,7 @@ export function createApi({ baseUrl = '/api/v1', getToken = () => null, onUnauth
     adminListCompanies: () => json('GET', '/admin/companies').then((r) => r.companies),
     adminCreateCompany: (body) => json('POST', '/admin/companies', { body }),
     adminUpdateCompany: (slug, body) => json('PATCH', `/admin/companies/${q(slug)}`, { body }),
+    adminAudit: (params = {}) => json('GET', `/admin/audit?${new URLSearchParams(params)}`),
     adminOverview: (hours = 24, signal) => json('GET', `/admin/overview?hours=${hours}`, { signal }),
 
     // super admin: regulatory (versioned documents + openFDA approval)

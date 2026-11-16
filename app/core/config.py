@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     # --- Agent / tools / internet search ----------------------------------
     AGENT_ENABLED: bool = True
     AGENT_TIMEZONE: str = "Asia/Karachi"      # Windows par: pip install tzdata
+    AUDIT_RETENTION_DAYS: int = 365      # audit_log ki purani entries is se zyada purani hatayi jati hain; 0 = hamesha rakho
     WEB_SEARCH_ENABLED: bool = False     # secure default: company questions never leave the server unless explicitly enabled
     # auto: rules + chhota model faisla (general => model khud, verify wali cheez => internet). factual: har factual sawal par
     # internet. fresh: sirf current/latest/news wale par.

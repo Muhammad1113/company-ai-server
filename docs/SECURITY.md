@@ -17,6 +17,7 @@
 - Browser tokens: "remember me" stores the session token in `localStorage` (7-day default TTL is reduced to 24h in the production template).
 
 ## Added in this release
+- Admin/security audit log (`/api/v1/admin/audit`, super admin only; `app/services/audit.py`). Not recorded: passwords, chat or document content. Retention: `AUDIT_RETENTION_DAYS`. Not tamper-proof: someone with database write access can edit it, so ship it to an external log store if you need that.
 - `scripts/check_secrets.py` (run before every push), `.gitignore` covering `.env`, `data/`, `backups/`.
 - `scripts/lock_ports.ps1`: default-deny inbound, only 80/443 open, llama/Postgres ports closed to the LAN.
 - Services bind to 127.0.0.1; HTTPS via Caddy (`deploy/Caddyfile.host` or Docker `deploy/Caddyfile`).

@@ -37,7 +37,7 @@ and every vector query filters on `collection`. Regulatory text (openFDA, eCFR) 
 2. **In-memory queue, limiter, cache**: lost on restart; blocks multi-instance deployment until Redis.
 3. **Isolation is application-level**: a bug in one route could leak across companies (mitigated by tests). Postgres row-level security is not used.
 4. **Small local model**: it can state wrong regulatory facts confidently. Answers carry citations (section level for FDA/eCFR) but must be verified before reaching a customer.
-5. **No audit log** of admin actions; **no encryption at rest** (use LUKS on the VM disk); API keys in `.env` are plaintext.
+5. **Audit log exists** (admin/security events, see SECURITY.md) but is stored in the same database and is not tamper-proof; **no encryption at rest** (use LUKS on the VM disk); API keys in `.env` are plaintext.
 6. **Not yet verified on real infrastructure**: Postgres run of the new repositories, HTTPS, GPU service restarts, backup restore, accuracy on real questions (see `docs/PRODUCTION_CHECKLIST.md`).
 7. Proxmox: the GPU is bound to one VM; VM snapshots do not replace database backups.
 

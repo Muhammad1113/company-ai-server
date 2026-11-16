@@ -14,6 +14,7 @@ Tick every box before real company data goes in. "Verified" means you saw it wor
 - [ ] `APP_ENV=production`, `python scripts/preflight.py` shows no `[ERROR]`
 - [ ] `RAG_STORE_BACKEND=pgvector`, `RAG_EMBEDDER=llama_cpp`, `WEB_SEARCH_ENABLED=false`
 - [ ] `METRICS_TOKEN` set; `SESSION_TTL_HOURS` reviewed
+- [ ] Audit log checked in the portal (Admin, Audit log): create a test user, reset its password, fail a login; confirm entries appear and no password shows
 - [ ] `python scripts\check_secrets.py --all` clean; no secret in git history (`gitleaks`/`trufflehog`); repository is private
 
 ## Network

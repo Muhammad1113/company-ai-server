@@ -5,6 +5,7 @@ import CompaniesTab from './admin/CompaniesTab.jsx';
 import UsersTab from './admin/UsersTab.jsx';
 import DocumentsTab from './admin/DocumentsTab.jsx';
 import RegulatoryTab from './admin/RegulatoryTab.jsx';
+import AuditTab from './admin/AuditTab.jsx';
 
 // Super admin: Overview, Companies, Users, Documents.   Company admin: Users, Documents (sirf apni company).
 export default function Admin({ user, onClose, onCollectionsChanged }) {
@@ -30,7 +31,7 @@ export default function Admin({ user, onClose, onCollectionsChanged }) {
 
   const onCompaniesChanged = useCallback((list) => setCompanies(list), []);
   const tabs = isSuper
-    ? [['overview', 'Overview'], ['companies', 'Companies'], ['users', 'Users'], ['docs', 'Documents'], ['regulatory', 'Regulatory']]
+    ? [['overview', 'Overview'], ['companies', 'Companies'], ['users', 'Users'], ['docs', 'Documents'], ['regulatory', 'Regulatory'], ['audit', 'Audit log']]
     : [['users', 'Users'], ['docs', 'Documents']];
 
   return (
@@ -70,6 +71,7 @@ export default function Admin({ user, onClose, onCollectionsChanged }) {
             <UsersTab mode={isSuper ? 'super' : 'company'} me={user.username} companies={companies} initialCompany={userCompany} />
           )}
           {tab === 'regulatory' && isSuper && <RegulatoryTab onPendingChanged={setPending} />}
+          {tab === 'audit' && isSuper && <AuditTab />}
           {tab === 'docs' && (
             <DocumentsTab mode={isSuper ? 'super' : 'company'} companySlug={user.company} companies={companies}
               onCollectionsChanged={onCollectionsChanged} />

@@ -7,7 +7,7 @@ from app.api.deps import require_admin
 from app.core.concurrency import inference_controller
 from app.core.security import ClientInfo
 from app.database.accounts import _KEEP
-from app.services import container
+from app.services import audit, container
 
 router = APIRouter(prefix="/admin", tags=["Admin"], dependencies=[Depends(require_admin)])
 
@@ -51,13 +51,15 @@ class UpdateUser(BaseModel):
 
 # ---------- companies (super admin) ----------
 @router.post("/companies", status_code=201)
-async def create_company(body: CreateCompany):
+async def create_company(body: CreateCompany, admin: ClientInfo = Depends(require_admin)):
     try:
-        return await container.accounts_repo.create_company(
+        result = await container.accounts_repo.create_company(
             body.slug, body.name, body.email, body.max_users
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+    await audit.record(admin, "company.create", target=body.slug, detail={"max_users": body.max_users})
+    return result
 
 
 @router.get("/companies")
@@ -76,7 +78,7 @@ async def get_company(slug: str):
 
 
 @router.patch("/companies/{slug}")
-async def update_company(slug: str, body: UpdateCompany):
+async def update_company(slug: str, body: UpdateCompany, admin: ClientInfo = Depends(require_admin)):
     email = body.email if "email" in body.model_fields_set else _KEEP
     try:
         found = await container.accounts_repo.update_company(
@@ -86,17 +88,22 @@ async def update_company(slug: str, body: UpdateCompany):
         raise HTTPException(400, str(exc))
     if not found:
         raise HTTPException(404, "Company not found")
+    action = ("company.disable" if body.disabled is True else
+              "company.enable" if body.disabled is False else "company.update")
+    await audit.record(admin, action, target=slug, detail={"fields": sorted(body.model_fields_set)})
     return {"status": "updated", "slug": slug}
 
 
 @router.post("/users", status_code=201)
 async def create_user(body: CreateUser, admin: ClientInfo = Depends(require_admin)):
     try:
-        return await container.accounts_repo.create_user(
+        result = await container.accounts_repo.create_user(
             body.username, body.password, body.role, body.collections, body.company
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+    await audit.record(admin, "user.create", target=body.username, detail={"role": body.role, "company": body.company})
+    return result
 
 
 @router.get("/users")
@@ -105,7 +112,7 @@ async def list_users(company: str | None = None):
 
 
 @router.patch("/users/{username}")
-async def update_user(username: str, body: UpdateUser):
+async def update_user(username: str, body: UpdateUser, admin: ClientInfo = Depends(require_admin)):
     collections = body.collections if "collections" in body.model_fields_set else _KEEP
     try:
         found = await container.accounts_repo.update_user(
@@ -120,7 +127,25 @@ async def update_user(username: str, body: UpdateUser):
 
     if not found:
         raise HTTPException(404, "User not found")
+    action = ("user.password_reset" if body.password else "user.disable" if body.disabled is True else
+              "user.enable" if body.disabled is False else "user.update")
+    await audit.record(admin, action, target=username, detail={"fields": sorted(body.model_fields_set)})   # password ki value kabhi nahi
     return {"status": "updated", "username": username}
+
+
+# ---------- audit log (super admin) ----------
+@router.get("/audit")
+async def audit_log(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    actor: str | None = Query(default=None, max_length=64),
+    action: str | None = Query(default=None, max_length=40),
+    company: str | None = Query(default=None, max_length=32),
+    ok: bool | None = None,
+):
+    """Admin / security events, naye pehle. Passwords ya content kabhi nahi: sirf kaun, kya, kis par, kab."""
+    rows = await container.audit_repo.list(limit + 1, offset, actor, action, company, ok)
+    return {"events": rows[:limit], "has_more": len(rows) > limit}
 
 
 # ---------- load / online overview (super admin) ----------

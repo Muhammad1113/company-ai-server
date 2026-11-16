@@ -12,7 +12,7 @@ from app.core.config import settings
 from app.core.metrics import RAG_QUERIES
 from app.core.security import ClientInfo
 from app.rag.extractors import ExtractionError, extract_text
-from app.services import container
+from app.services import audit, container
 
 router = APIRouter(prefix="/rag", tags=["RAG"])
 
@@ -38,13 +38,16 @@ class QueryRequest(BaseModel):
 async def ingest(request: IngestRequest, client: ClientInfo = Depends(get_client)):
     ensure_collection_manage(client, request.collection)
     try:
-        return await container.rag_service.ingest(
+        result = await container.rag_service.ingest(
             request.doc_id, request.text, request.collection, request.metadata
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     except Exception as exc:
         raise_mapped(exc)
+    await audit.record(client, "document.ingest", target=f"{request.collection}/{request.doc_id}",
+                       detail={"chars": len(request.text)})
+    return result
 
 
 class SearchRequest(BaseModel):
@@ -105,14 +108,15 @@ async def ingest_file(
     except ExtractionError as exc:
         raise HTTPException(exc.status, str(exc))
 
+    final_id = doc_id or _doc_id_from(filename)
     try:
-        result = await container.rag_service.ingest(
-            doc_id or _doc_id_from(filename), text, collection, meta
-        )
+        result = await container.rag_service.ingest(final_id, text, collection, meta)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     except Exception as exc:
         raise_mapped(exc)
+    await audit.record(client, "document.ingest", target=f"{collection}/{final_id}",
+                       detail={"chars": int(meta["chars"]), "type": meta.get("type")})
 
     return {
         **result,
@@ -207,6 +211,7 @@ async def delete_document(
     removed = await container.rag_service.delete(doc_id, collection)
     if removed == 0:
         raise HTTPException(404, "Document not found")
+    await audit.record(client, "document.delete", target=f"{collection}/{doc_id}", detail={"chunks_removed": removed})
     return {"doc_id": doc_id, "collection": collection, "chunks_removed": removed}
 
 

@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from app.api.deps import require_company_admin
 from app.core import tenancy
 from app.core.security import ClientInfo
-from app.services import container
+from app.services import audit, container
 
 router = APIRouter(prefix="/company", tags=["Company"])
 
@@ -38,11 +38,13 @@ async def my_company(client: ClientInfo = Depends(require_company_admin)):
 @router.post("/users", status_code=201)
 async def create_user(body: NewUser, client: ClientInfo = Depends(require_company_admin)):
     try:
-        return await container.accounts_repo.create_user(
+        result = await container.accounts_repo.create_user(
             body.username, body.password, "user", None, client.company
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+    await audit.record(client, "user.create", target=body.username, detail={"role": "user", "company": client.company})
+    return result
 
 
 @router.patch("/users/{username}")
@@ -63,4 +65,7 @@ async def edit_user(username: str, body: EditUser, client: ClientInfo = Depends(
         raise HTTPException(400, str(exc))
     if not found:
         raise HTTPException(404, "User not found")
+    action = ("user.password_reset" if body.password else "user.disable" if body.disabled is True else
+              "user.enable" if body.disabled is False else "user.update")
+    await audit.record(client, action, target=username, detail={"fields": sorted(body.model_fields_set)})
     return {"status": "updated", "username": username}

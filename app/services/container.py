@@ -11,8 +11,10 @@ from app.core.fairness import ClientConcurrencyLimiter
 from app.core.ratelimit import TokenBucketLimiter
 from app.core.security import parse_api_keys
 from app.database.accounts import AccountsRepository
+from app.database.audit import AuditRepository
 from app.database.conversations import ConversationRepository
 from app.database.pg_accounts import PgAccountsRepository
+from app.database.pg_audit import PgAuditRepository
 from app.database.pg_conversations import PgConversationRepository
 from app.database.pg_regulatory import PgRegulatoryRepository
 from app.database.postgres import PostgresDatabase, PostgresUsageRepository
@@ -150,6 +152,7 @@ else:
     accounts_repo = AccountsRepository(settings.DATABASE_PATH, session_ttl_hours=settings.SESSION_TTL_HOURS)
     conversations_repo = ConversationRepository(settings.DATABASE_PATH)
     regulatory_repo = RegulatoryRepository(settings.DATABASE_PATH)
+audit_repo = PgAuditRepository(db) if db is not None else AuditRepository(settings.DATABASE_PATH)
 regulatory_service = RegulatoryService(
     regulatory_repo,
     rag_service,
@@ -198,6 +201,12 @@ async def startup():
     await accounts_repo.init()
     await conversations_repo.init()
     await regulatory_repo.init()
+    await audit_repo.init()
+    if settings.AUDIT_RETENTION_DAYS > 0:
+        try:
+            await audit_repo.purge(settings.AUDIT_RETENTION_DAYS)
+        except Exception:
+            logger.exception("audit retention purge failed")
 
     init_store = getattr(rag_service.store, "init", None)
     if init_store is not None:
@@ -240,6 +249,7 @@ async def shutdown():
         accounts_repo.close,
         conversations_repo.close,
         regulatory_repo.close,
+        audit_repo.close,
         db.close if db else None,        # sab se aakhir mein
     ]
     for closer in closers:

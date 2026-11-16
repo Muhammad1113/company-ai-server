@@ -7,7 +7,7 @@ from app.api.deps import get_client
 from app.core.metrics import LOGIN_FAILURES
 from app.core import tenancy
 from app.core.security import ClientInfo, extract_api_key
-from app.services import container
+from app.services import audit, container
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -48,9 +48,11 @@ async def login(body: LoginRequest, request: Request):
 
     if user is None:
         LOGIN_FAILURES.inc()
+        await audit.record(body.username, "auth.login_failed", ok=False, ip=host)
         raise HTTPException(401, "Invalid username or password")
 
     token, expires_at = await container.accounts_repo.create_session(user["id"])
+    await audit.record(user["username"], "auth.login", ip=host, role=user["role"], company=user["company"])
 
     return {
         "token": token,
@@ -75,7 +77,7 @@ class ChangePasswordRequest(BaseModel):
 
 @router.post("/change-password")
 async def change_password(
-    body: ChangePasswordRequest, client: ClientInfo = Depends(get_client)
+    body: ChangePasswordRequest, request: Request, client: ClientInfo = Depends(get_client)
 ):
     """Naya session token wapas aata hai (baqi sab sessions band ho jate hain)."""
     allowed, retry_after = container.login_limiter.allow(f"pw:{client.name.lower()}")
@@ -92,9 +94,12 @@ async def change_password(
             client.name, body.current_password, body.new_password
         )
     except ValueError as exc:
+        await audit.record(client, "auth.password_change_failed", ok=False,
+                           ip=request.client.host if request.client else None)
         raise HTTPException(400, str(exc))
 
     token, expires_at = await accounts.create_session(user_id)
+    await audit.record(client, "auth.password_change", ip=request.client.host if request.client else None)
     return {"token": token, "token_type": "bearer", "expires_at": expires_at}
 
 
