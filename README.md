@@ -80,7 +80,7 @@ Scaling to several API processes is the one thing that needs code: queue, limite
 - **Documents**: list per company collection, view chunks/pages, upload, delete.
 - **Regulatory**: EU/UK/AU/... versioned documents (upload, archive, restore, retire, view text); openFDA product codes and eCFR parts
   (21 CFR 801/807/820/878 by default) with *Check now* -> pending queue -> approve/reject.
-- **Audit log** (super admin, `GET /api/v1/admin/audit`): who did what and when: sign-ins and failed sign-ins (with IP), password changes/resets, user and company create/edit/disable, document add/delete, every regulatory action (sync, approve, reject, version upload/restore/retire). Stored in the same database (PostgreSQL or SQLite); passwords and document/chat content are never recorded; entries older than `AUDIT_RETENTION_DAYS` (default 365, 0 = keep forever) are purged at startup. Writing an audit entry never fails the request (errors are logged).
+- **Audit log** (super admin, `GET /api/v1/admin/audit`): who did what and when: sign-ins and failed sign-ins (with IP), password changes/resets, user and company create/edit/disable, document add/delete, attempts to open another company's collection (`access.denied`), sign-out, and every regulatory action (sync, approve, reject, version upload/restore/retire). Stored in the same database (PostgreSQL or SQLite); passwords and document/chat content are never recorded; entries older than `AUDIT_RETENTION_DAYS` (default 365, 0 = keep forever) are purged at startup. Writing an audit entry never fails the request (errors are logged).
 - Not included yet: permanent deletion of users/companies (they are disabled, not deleted).
 
 ## Architecture (short)

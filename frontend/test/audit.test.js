@@ -9,6 +9,11 @@ test('known actions get a readable label, unknown ones fall back safely', () => 
   assert.equal(actionLabel(undefined), '');
 });
 
+test('access denied and logout have labels', () => {
+  assert.equal(actionLabel('access.denied'), 'Blocked from a collection');
+  assert.equal(actionLabel('auth.logout'), 'Signed out');
+});
+
 test('detail is a single line and skips empty values', () => {
   assert.equal(detailText({ role: 'user', company: 'acme', note: '' }), 'role: user · company: acme');
   assert.equal(detailText({ fields: ['password', 'disabled'] }), 'fields: password, disabled');

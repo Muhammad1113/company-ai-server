@@ -63,6 +63,11 @@ RAG_QUERIES = Counter(
 )
 
 
+AUDIT_WRITE_FAILURES = Counter(
+    "company_ai_audit_write_failures_total",
+    "Audit log entries that could not be written (alert on any increase)"
+)
+
 LOGIN_FAILURES = Counter(
     "company_ai_login_failures_total",
     "Failed login attempts"

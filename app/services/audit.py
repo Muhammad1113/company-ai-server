@@ -5,6 +5,7 @@ Repo init na hui ho (kuch tests / dev) to chupchap kuch nahi karta. Passwords ya
 """
 import logging
 
+from app.core.metrics import AUDIT_WRITE_FAILURES
 from app.services import container
 
 logger = logging.getLogger("company_ai.audit")
@@ -15,11 +16,12 @@ async def record(actor, action: str, *, target=None, detail=None, ok: bool = Tru
     repo = getattr(container, "audit_repo", None)
     try:
         if repo is None or not repo.ready:
-            return
+            return                               # audit chalu hi nahi (dev / tests)
         if isinstance(actor, str):
             name = actor
         else:                                    # ClientInfo
             name, role, company = actor.name, actor.role, actor.company
         await repo.record(name[:64], role, company, action, target, detail, ip, ok)
     except Exception:
+        AUDIT_WRITE_FAILURES.inc()               # /metrics par alert lagao: koi bhi izafa = audit record miss hua
         logger.exception("audit write failed (action=%s)", action)

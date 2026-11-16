@@ -2,6 +2,7 @@
 export const AUDIT_GROUPS = [
   ['', 'All events'],
   ['auth', 'Sign-ins and passwords'],
+  ['access', 'Access denied'],
   ['user', 'Users'],
   ['company', 'Companies'],
   ['document', 'Documents'],
@@ -11,6 +12,8 @@ export const AUDIT_GROUPS = [
 const LABELS = {
   'auth.login': 'Signed in',
   'auth.login_failed': 'Failed sign-in',
+  'auth.logout': 'Signed out',
+  'access.denied': 'Blocked from a collection',
   'auth.password_change': 'Changed own password',
   'auth.password_change_failed': 'Failed password change',
   'user.create': 'Created user',

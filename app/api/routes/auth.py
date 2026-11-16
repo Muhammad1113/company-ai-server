@@ -106,6 +106,7 @@ async def change_password(
 @router.post("/logout")
 async def logout(request: Request, client: ClientInfo = Depends(get_client)):
     await container.accounts_repo.delete_session(extract_api_key(request.headers))
+    await audit.record(client, "auth.logout", ip=request.client.host if request.client else None)
     return {"status": "ok"}
 
 

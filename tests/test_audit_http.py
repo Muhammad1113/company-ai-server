@@ -122,6 +122,28 @@ def test_company_admin_and_document_actions_carry_company(world):
     assert "forceps" not in json.dumps(events)                       # document ka text kabhi nahi
 
 
+def test_cross_company_access_attempt_is_audited(world):
+    import time
+    c, h = world
+    r = c.post(f"{P}/rag/search", headers=h("acme_ali"), json={"question": "prices", "collection": "co_other__docs"})
+    assert r.status_code == 403
+    denied = []
+    for _ in range(20):                       # audit fire-and-forget hai: chhota intezar
+        denied = _events(c, h, action="access")["events"]
+        if denied:
+            break
+        time.sleep(0.05)
+    assert denied and denied[0]["action"] == "access.denied" and denied[0]["actor"] == "acme_ali"
+    assert denied[0]["target"] == "co_other__docs" and denied[0]["ok"] is False and denied[0]["detail"] == {"op": "read"}
+
+
+def test_logout_is_recorded(world):
+    c, h = world
+    tok = c.post(f"{P}/auth/login", json={"username": "acme_ali", "password": PW}).json()["token"]
+    assert c.post(f"{P}/auth/logout", headers={"Authorization": f"Bearer {tok}"}).status_code == 200
+    assert any(e["action"] == "auth.logout" and e["actor"] == "acme_ali" for e in _events(c, h, action="auth")["events"])
+
+
 def test_failed_login_is_recorded_and_filters_work(world):
     c, h = world
     assert c.post(f"{P}/auth/login", json={"username": "acme_ali", "password": "wrong-password"}).status_code == 401

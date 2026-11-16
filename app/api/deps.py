@@ -1,3 +1,4 @@
+import asyncio
 import math
 
 from fastapi import Depends, HTTPException, Request
@@ -5,7 +6,7 @@ from fastapi import Depends, HTTPException, Request
 from app.core.config import settings
 from app.core.metrics import AUTH_FAILURES, RATE_LIMITED
 from app.core.security import ClientInfo, authenticate, extract_api_key
-from app.services import container
+from app.services import audit, container
 
 
 async def get_client(request: Request) -> ClientInfo:
@@ -60,15 +61,31 @@ async def get_client(request: Request) -> ClientInfo:
     return info
 
 
+_audit_tasks: set = set()
+
+
+def _audit_denied(client: ClientInfo, op: str, collection: str) -> None:
+    """403 ko audit mein likho (fire-and-forget; request ka jawab nahi rukta). Cross-company koshish ka saboot."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:                      # sync context (unit tests): kuch nahi
+        return
+    task = loop.create_task(audit.record(client, "access.denied", target=collection, ok=False, detail={"op": op}))
+    _audit_tasks.add(task)                    # reference rakho taake task GC na ho
+    task.add_done_callback(_audit_tasks.discard)
+
+
 def ensure_collection_access(client: ClientInfo, collection: str) -> None:
     """Collection ka wajood/na-wajood na batao: sirf 403."""
     if not client.can_access(collection):
+        _audit_denied(client, "read", collection)
         raise HTTPException(status_code=403, detail="No access to this collection")
 
 
 def ensure_collection_manage(client: ClientInfo, collection: str) -> None:
     """Upload / delete / list-for-admin: super admin sab; company_admin sirf apni company ki."""
     if not client.can_manage(collection):
+        _audit_denied(client, "manage", collection)
         raise HTTPException(status_code=403, detail="No permission to manage this collection")
 
 
