@@ -11,7 +11,7 @@
 
 ## Stack
 Python 3.11, FastAPI + uvicorn (1 worker), httpx, prometheus_client. Windows + PowerShell + .venv.
-Chat inference: llama.cpp llama-server (Qwen3-4B-Q4_K_M, -ngl 99 -c 4096 -np 1, :8081) on GTX 1070.
+Chat inference: llama.cpp llama-server (Qwen3.5-9B-Q4_K_M, -ngl 99 -c 4096 -np 1, :8081) on GTX 1070.
 Embeddings: llama-server --embedding (Qwen3-Embedding-0.6B-Q8_0, --pooling last, CPU, :8082).
 Storage: SQLite + JSON vector store (default) ya PostgreSQL + pgvector (DATABASE_URL, RAG_STORE_BACKEND=pgvector).
 
