@@ -1,0 +1,31 @@
+{"question": "When is a premarket notification (510(k)) required?", "doc_id": "ecfr-21cfr807", "expect_section": "807.81"}
+{"question": "What information must a 510(k) submission contain?", "doc_id": "ecfr-21cfr807", "expect_section": "807.87"}
+{"question": "What is the content and format of a 510(k) summary?", "doc_id": "ecfr-21cfr807", "expect_section": "807.92"}
+{"question": "Who must register their establishment and list devices with FDA?", "doc_id": "ecfr-21cfr807", "expect_section": "807.20"}
+{"question": "How does FDA act on a premarket notification?", "doc_id": "ecfr-21cfr807", "expect_section": "807.100"}
+{"question": "What is the required format of a premarket notification submission?", "doc_id": "ecfr-21cfr807", "expect_section": "807.90"}
+{"question": "Do initial importers of devices need to register?", "doc_id": "ecfr-21cfr807", "expect_section": "807.20"}
+{"question": "What must be on the label of a prescription device?", "doc_id": "ecfr-21cfr801", "expect_section": "801.109"}
+{"question": "What does adequate directions for use mean for a medical device?", "doc_id": "ecfr-21cfr801", "expect_section": "801.5"}
+{"question": "What are the prominence requirements for required label statements?", "doc_id": "ecfr-21cfr801", "expect_section": "801.15"}
+{"question": "Does a device label need a unique device identifier (UDI)?", "doc_id": "ecfr-21cfr801", "expect_section": "801.20"}
+{"question": "What date format must be used on a medical device label?", "doc_id": "ecfr-21cfr801", "expect_section": "801.18"}
+{"question": "Which devices are exempt from adequate directions for use?", "doc_id": "ecfr-21cfr801", "expect_section": "801.109"}
+{"question": "What is the scope of the quality management system regulation?", "doc_id": "ecfr-21cfr820", "expect_section": "820.1"}
+{"question": "Which ISO standard does Part 820 incorporate by reference?", "doc_id": "ecfr-21cfr820", "expect_section": "820.7"}
+{"question": "What are the general requirements for a quality management system?", "doc_id": "ecfr-21cfr820", "expect_section": "820.10"}
+{"question": "What records must be controlled under the QMSR?", "doc_id": "ecfr-21cfr820", "expect_section": "820.35"}
+{"question": "What are the device labeling and packaging control requirements?", "doc_id": "ecfr-21cfr820", "expect_section": "820.45"}
+{"question": "How does the QMSR define a finished device?", "doc_id": "ecfr-21cfr820", "expect_section": "820.3"}
+{"question": "What must a complaint record contain?", "doc_id": "ecfr-21cfr820", "expect_section": "820.35"}
+{"question": "What classification is a manual surgical instrument for general use?", "doc_id": "ecfr-21cfr878", "expect_section": "878.4800"}
+{"question": "What is the classification of electrosurgical cutting and coagulation devices?", "doc_id": "ecfr-21cfr878", "expect_section": "878.4400"}
+{"question": "How are surgical drapes classified?", "doc_id": "ecfr-21cfr878", "expect_section": "878.4370"}
+{"question": "What is the classification of surgeon's gloves?", "doc_id": "ecfr-21cfr878", "expect_section": "878.4460"}
+{"question": "How are nonabsorbable surgical sutures classified?", "doc_id": "ecfr-21cfr878", "expect_section": "878.5000"}
+{"question": "Which general and plastic surgery devices are class II?", "doc_id": "ecfr-21cfr878", "expect_section": "878"}
+{"question": "What is the scope of Part 878 device classification?", "doc_id": "ecfr-21cfr878", "expect_section": "878.1"}
+{"question": "What is the FDA classification of product code GAD?", "doc_id": "openfda-gad-classification", "expect_section": "-"}
+{"question": "Are there recalls for product code GAD?", "doc_id": "openfda-gad-recall", "expect_section": "-"}
+{"question": "Which 510(k) clearances exist for product code GAD?", "doc_id": "openfda-gad-510k", "expect_section": "-"}
+{"question": "What is the device class and regulation number for GAD?", "doc_id": "openfda-gad-classification", "expect_section": "-"}

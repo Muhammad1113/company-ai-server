@@ -1,0 +1,41 @@
+# HTTPS proxy: Windows host par (Docker ke baghair). Env: SITE_ADDRESS, TLS_MODE, FRONTEND_DIST (forward slashes)
+#   caddy validate --config deploy/Caddyfile.host        caddy run --config deploy/Caddyfile.host
+# (docker-compose.yml wala stack deploy/Caddyfile use karta hai; ye uska host-run version hai: api = 127.0.0.1:8000)
+{$SITE_ADDRESS:localhost} {
+	tls {$TLS_MODE:internal}
+
+	# /metrics aur docs kabhi public nahi
+	@private path /metrics* /docs* /redoc* /openapi.json
+	respond @private 404
+
+	request_body {
+		max_size 25MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'"
+		-Server
+	}
+
+	handle /api/* {
+		# flush_interval -1: SSE tokens buffer na hon
+		reverse_proxy 127.0.0.1:8000 {
+			flush_interval -1
+		}
+	}
+
+	handle /health {
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	handle {
+		root * {$FRONTEND_DIST:C:/company_ai/frontend/dist}
+		encode gzip
+		try_files {path} /index.html
+		file_server
+	}
+}

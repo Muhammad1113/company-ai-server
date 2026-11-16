@@ -5,6 +5,8 @@ class Settings(BaseSettings):
 
     APP_NAME: str = "Company AI Server"
     APP_VERSION: str = "1.10.0"
+    # development: auth khali ho to server khula (sirf dev). production: auth hamesha lazmi (fail-closed).
+    APP_ENV: str = "development"
     API_V1_PREFIX: str = "/api/v1"
 
     INFERENCE_PROVIDER: str = "llama_cpp"
@@ -27,6 +29,8 @@ class Settings(BaseSettings):
     # "name:key[:role],name2:key2"  (key >= 16 chars, role user|admin)
     # Empty => authentication DISABLED (development only).
     API_KEYS: str = ""
+    # Khali = /metrics khula (dev). Set ho to "Authorization: Bearer <token>" chahiye (Prometheus credentials).
+    METRICS_TOKEN: str = ""
     RATE_LIMIT_PER_MINUTE: int = 120   # 0 = disabled
     RATE_LIMIT_BURST: int = 20
 

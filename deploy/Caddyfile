@@ -1,53 +1,39 @@
-# Caddy = Nginx se aasaan (Windows par auto-HTTPS + internal CA). caddy.server se download.
-# Check: caddy validate --config deploy\Caddyfile     Run: caddy run --config deploy\Caddyfile
-#
-# Sirf HTTP (LAN test) ke liye pehli line  :80 {  rakho.
-# HTTPS ke liye usay badal do:   company-ai.local {  +  andar  tls internal
-# (company-ai.local ko DNS/hosts mein is machine ke IP par point karo; browsers ko Caddy ka
-#  root CA trust karwana hota hai: caddy trust)
+# HTTPS reverse proxy + static frontend.  Env: SITE_ADDRESS (default localhost), TLS_MODE (internal | you@email)
+{$SITE_ADDRESS:localhost} {
+	tls {$TLS_MODE:internal}
 
-:80 {
-    # Metrics/docs bahar expose nahi
-    @private path /metrics* /docs* /redoc* /openapi.json
-    handle @private {
-        @outside not remote_ip 127.0.0.1 ::1
-        respond @outside 403
-        reverse_proxy 127.0.0.1:8000
-    }
+	# /metrics and docs are never public
+	@private path /metrics* /docs* /redoc* /openapi.json
+	respond @private 404
 
-    # API + SSE: compression nahi (streaming todta hai), flush foran
-    handle /api/* {
-        request_body {
-            max_size 25MB
-        }
-        reverse_proxy 127.0.0.1:8000 {
-            flush_interval -1
-            transport http {
-                read_timeout 300s
-            }
-        }
-    }
+	request_body {
+		max_size 25MB
+	}
 
-    handle /health {
-        reverse_proxy 127.0.0.1:8000
-    }
-    handle /ready {
-        reverse_proxy 127.0.0.1:8000
-    }
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'"
+		-Server
+	}
 
-    # Frontend (build ke baad)
-    handle {
-        root * C:\Users\sh\company-ai-server\frontend\dist
-        encode zstd gzip
-        try_files {path} /index.html
-        file_server
-    }
+	handle /api/* {
+		# flush_interval -1: SSE tokens must not be buffered
+		reverse_proxy api:8000 {
+			flush_interval -1
+		}
+	}
 
-    header {
-        X-Content-Type-Options nosniff
-        X-Frame-Options DENY
-        Referrer-Policy no-referrer
-        Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
-        -Server
-    }
+	handle /health {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		root * /srv
+		encode gzip
+		try_files {path} /index.html
+		file_server
+	}
 }

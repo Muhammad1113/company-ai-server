@@ -1,5 +1,135 @@
-﻿
-## Setup & Deployment Notes (Pilot Release)
-- **PDF Page Numbers:** Page numbers are stored at document upload time. Re-upload PDFs on a fresh server so citations display Page N instead of Part N (openFDA and eCFR synced records always show Part N).
-- **System Prompt Rules:** If using a custom CHAT_SYSTEM_PROMPT in .env or data/system_prompt.txt, include: Never add a "Note:" line about where your answer comes from, and never mention "the provided context" or "the documents provided".
-- **Database & Vector Store:** Set RAG_STORE_BACKEND=pgvector and DATABASE_URL in .env when switching from local JSON/SQLite to Docker PostgreSQL + pgvector.
+# MetaXpert Company AI
+
+Private, self-hosted AI assistant for sales teams: multi-company document Q&A (RAG), a Super Admin portal,
+and regulatory knowledge (US openFDA + eCFR Title 21) that is synced **only after an admin approves it**.
+Runs on your own hardware with llama.cpp; no company document leaves the server.
+
+> **Status: production-ready code, awaiting your verification.** Everything is on PostgreSQL when `DATABASE_URL` is set.
+> Items marked unchecked in [docs/PRODUCTION_CHECKLIST.md](docs/PRODUCTION_CHECKLIST.md) (real Postgres run, HTTPS, service restart,
+> backup restore, accuracy eval) must be ticked on your machine before onboarding real company data.
+
+## Features
+- **Multi-company isolation**: each company gets `co_<slug>__docs`; shared regulatory data lives in `reg__*` (read-only for companies). Deny by default.
+- **Roles**: `admin` (Super Admin), `company_admin`, `user`. Scrypt password hashing, hashed session tokens, login rate limiting.
+- **RAG chat** with streaming (SSE), citations, follow-up handling, stop/regenerate, per-user conversation history.
+- **Regulatory sync**: openFDA + eCFR (21 CFR) → pending queue → admin approval → versioned, restorable documents.
+- **Operations**: request IDs, Prometheus metrics, usage report, backups, FIFO inference queue with per-user fairness.
+
+## Architecture & Future Infrastructure Plan
+
+**Ownership.** The application (this repository) is finished for a single-node pilot: `llama.cpp` + FastAPI + PostgreSQL/pgvector layout,
+all features, tests, and Ubuntu deployment files. The **infrastructure / server team** (Proxmox, Ubuntu VM) owns: PostgreSQL + pgvector
+setup, server load handling, GPU upgrade, the later move to `vLLM`, and Redis.
+
+**Design goal.** Everything that changes with hardware is a setting or a deployment file, not application code:
+| Future change | Done by | What changes | Application code |
+|---|---|---|---|
+| PostgreSQL + pgvector server | infra | `DATABASE_URL`, `RAG_STORE_BACKEND=pgvector`; `scripts/migrate_sqlite_to_postgres.py` for pilot data | none (all data layers have Postgres repositories) |
+| Bigger GPU / more VRAM | infra | model path, `-c`, `-np`, `INFERENCE_MAX_CONCURRENT` in `deploy/ubuntu/companyai-chat.service` + `.env` | none |
+| Second GPU | infra | second llama-server behind nginx upstream (`deploy/ubuntu/nginx-llama-upstream.conf`) | none |
+| Switch to vLLM (OpenAI-compatible) | infra | `INFERENCE_PROVIDER=vllm`, `LLAMA_BASE_URL`, `LLAMA_MODEL` (= `--served-model-name`); example in `.env.example` | none: the `grammar` field is sent only to `llama_cpp` (`tests/test_provider_payload.py`) |
+| Redis response cache | infra | `CACHE_BACKEND=redis`, `REDIS_URL` | none |
+| Several API instances | engineering + infra | request queue, rate limiter and login limiter are in process memory and must move to Redis; `data/reg_archive` needs shared storage | **yes** (not done) |
+| Different embedding model | infra | `RAG_EMBED_DIM`, truncate `rag_chunks`, re-ingest | none |
+
+**Verdict (honest).** The software is modular and future-ready *for the rows marked "none"*: the inference provider is OpenAI-compatible,
+storage is behind repository classes with SQLite and PostgreSQL implementations, and company isolation sits in one place (`app/core/tenancy.py`).
+What is **not** yet future-ready is horizontal scaling of the API itself (in-memory queue/limiters), and the vLLM path itself is **not tested against a real vLLM server**.
+Current capacity: one GTX 1070 = one inference slot, a pilot or one department (3-10 active users). Review notes for the reviewer: [docs/ARCHITECTURE_REVIEW.md](docs/ARCHITECTURE_REVIEW.md); install steps: [docs/UBUNTU_DEPLOYMENT.md](docs/UBUNTU_DEPLOYMENT.md).
+
+**Test status (maintainer's Windows machine).** `pytest tests -q -rs`: 254 passed, 12 skipped, 0 failed; `check_secrets.py --all` clean.
+The 12 skips are the PostgreSQL tests (`TEST_DATABASE_URL` not set); they must be run once on a machine with Docker (`scripts\setup_postgres.ps1`) or on the Ubuntu VM before go-live.
+
+## Super Admin portal (what is included)
+- **Overview**: companies, users online, usage per client, pending regulatory updates (no document content is shown).
+- **Companies**: create, edit (name, email, user limit), disable/enable (disabling logs out all its users immediately).
+- **Users**: create super admin / company admin / user, reset password, disable. Company admins manage only their own company's users.
+- **Documents**: list per company collection, view chunks/pages, upload, delete.
+- **Regulatory**: EU/UK/AU/... versioned documents (upload, archive, restore, retire, view text); openFDA product codes and eCFR parts
+  (21 CFR 801/807/820/878 by default) with *Check now* -> pending queue -> approve/reject.
+- Not included yet: permanent deletion of users/companies (they are disabled, not deleted) and an audit log of admin actions.
+
+## Architecture (short)
+```
+Browser ──HTTPS──> Caddy ──> FastAPI (1 worker) ──> llama.cpp chat   (:8081)
+ React SPA          │             │ ──────────────> llama.cpp embed  (:8082)
+                    └ static      ├──> PostgreSQL + pgvector  (vectors, accounts, sessions, conversations, regulatory, usage)
+                                  └──> data/reg_archive (regulatory files); SQLite only if DATABASE_URL empty (dev)
+```
+Details and known limits: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Project layout
+```
+app/            FastAPI backend (api/, core/, database/, providers/, rag/, services/)
+frontend/       React + Vite SPA
+tests/          pytest suite (backend)         frontend/test/  node:test suite
+scripts/        create_company.py, create_user.py, preflight.py, check_secrets.py, check_live_sources.py,
+                setup_postgres.ps1, migrate_sqlite_to_postgres.py, migrate_json_to_pgvector.py,
+                pg_backup.ps1, pg_restore_test.ps1, backup.py, install_services.ps1 (NSSM), lock_ports.ps1,
+                rag_eval.py, load_test.py, start_all.ps1, watchdog.ps1 ...
+deploy/         Caddyfile (Docker), Caddyfile.host (Windows host), Dockerfile.web
+docs/           API.md, ARCHITECTURE.md, DEPLOYMENT.md, SECURITY.md, PRODUCTION_CHECKLIST.md, PROJECT_STATE.md
+eval/sample/    tiny pipeline check (NOT an accuracy benchmark)
+eval/regulatory/ starter FDA/eCFR question set (verify with your regulatory lead)
+Dockerfile, docker-compose.yml (production), docker-compose.db.yml (Postgres only), .env.example, .env.production.example
+```
+
+## Quick start (development, Windows/PowerShell)
+```powershell
+python -m venv .venv ; .\.venv\Scripts\Activate.ps1
+pip install -r requirements-dev.txt
+copy .env.example .env
+# models/ must contain the chat + embedding GGUF files, then:
+.\scripts\start_all.ps1                         # chat model, embedding server, API (3 windows)
+python scripts\create_company.py acme "Acme Surgical"
+python scripts\create_user.py root --role admin
+cd frontend ; npm install ; npm run dev         # http://localhost:5173  (proxies /api to :8000)
+```
+Tests: `python -m pytest tests -q -rs` and `cd frontend ; node --test test/`.
+
+## Production
+Ubuntu / Proxmox VM: [docs/UBUNTU_DEPLOYMENT.md](docs/UBUNTU_DEPLOYMENT.md). Architecture and capacity review for reviewers: [docs/ARCHITECTURE_REVIEW.md](docs/ARCHITECTURE_REVIEW.md). Windows host: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). In short: `cp .env.production.example .env`, edit, run
+`python scripts/preflight.py` (must show no `[ERROR]`), then `docker compose up -d --build`.
+With `APP_ENV=production` the API **always requires authentication** (even before the first user exists).
+
+## Configuration
+All settings are environment variables / `.env` (see `app/core/config.py`). The important ones:
+
+| Variable | Default | Production value |
+|---|---|---|
+| `APP_ENV` | `development` | `production` |
+| `DATABASE_URL` | empty (SQLite) | `postgresql://company_ai:<pw>@host:5432/company_ai` (all data in Postgres) |
+| `RAG_STORE_BACKEND` | `json` | `pgvector` (+ `DATABASE_URL`) |
+| `RAG_EMBEDDER` | `hashing` (test only) | `llama_cpp` |
+| `WEB_SEARCH_ENABLED` | `true` | `false` for multi-company |
+| `METRICS_TOKEN` | empty (open) | long random token |
+| `SESSION_TTL_HOURS` | `168` | `24` |
+| `INFERENCE_MAX_CONCURRENT` | `1` | match your GPU (benchmark first) |
+
+## Known limitations (be honest with users)
+- One GPU / one worker: requests queue; in-memory limiter/cache/queue are per-process.
+- With `DATABASE_URL` set, accounts, sessions, conversations, regulatory records, vectors and usage are all in PostgreSQL. Archived regulatory files stay in `data/reg_archive/` (backed up by `scripts/backup.py`).
+- The Postgres repositories pass the same scenario tests as SQLite in the sandbox, but the real-PostgreSQL run is **yours to do** (`scripts\setup_postgres.ps1`).
+- Answers come from a small local model: regulatory answers must be verified before they reach a customer.
+- `LATIN_ONLY_OUTPUT=true` prevents Urdu-script answers (Roman Urdu is fine).
+- openFDA / eCFR citations show the section (`21 CFR 807.87`, `510(k) K123456`) once those documents are re-approved/re-ingested; older chunks fall back to "Part N".
+- Since 2 Feb 2026 Part 820 is the QMSR with only six sections (820.1, .3, .7, .10, .35, .45); old numbers such as 820.30 no longer exist.
+
+## Postgres migration (existing SQLite pilot data)
+```powershell
+.\scripts\setup_postgres.ps1                       # DB up + Postgres tests (must PASS, no skips)
+python scripts\migrate_sqlite_to_postgres.py --dry-run
+# stop the API, set DATABASE_URL + RAG_STORE_BACKEND=pgvector in .env, then:
+python scripts\migrate_sqlite_to_postgres.py     # copies users, sessions, conversations, regulatory; compares counts
+python scripts\migrate_json_to_pgvector.py --dry-run   # vectors (or simply re-ingest documents)
+.\scripts\start_all.ps1
+```
+Idempotent (safe to re-run). `usage_log` is not copied. Keep `data/company_ai.db` until login and history are verified.
+
+## Setup notes (pilot release)
+- **PDF page numbers** are stored at upload time. Re-upload PDFs on a fresh server so citations show *Page N* instead of *Part N* (openFDA/eCFR records always show *Part N*).
+- **System prompt rules**: if you use a custom `CHAT_SYSTEM_PROMPT` (`.env`) or `data/system_prompt.txt`, include: never add a "Note:" line about where the answer comes from, and never mention "the provided context" or "the documents provided".
+- **Database / vector store**: set `RAG_STORE_BACKEND=pgvector` and `DATABASE_URL` when moving from local JSON/SQLite to PostgreSQL + pgvector.
+
+## License
+No license file yet: all rights reserved by the company until one is added.

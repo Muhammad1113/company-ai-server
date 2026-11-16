@@ -1,0 +1,56 @@
+# Production stack: PostgreSQL+pgvector, API, HTTPS web (Caddy + built frontend).
+# The llama.cpp servers (GPU) run on the host: see docs/DEPLOYMENT.md.
+#   cp .env.production.example .env   (edit)   ->   docker compose up -d --build
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: company_ai
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: company_ai
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U company_ai -d company_ai"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql://company_ai:${POSTGRES_PASSWORD}@postgres:5432/company_ai
+      RAG_STORE_BACKEND: pgvector
+      DATABASE_PATH: /app/data/company_ai.db      # sirf SQLite fallback; DATABASE_URL set hone par use nahi hota (data/reg_archive isi volume mein)
+    volumes:
+      - appdata:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.web
+    restart: unless-stopped
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+      TLS_MODE: ${TLS_MODE:-internal}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  appdata:
+  caddy_data:

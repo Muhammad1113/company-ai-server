@@ -87,7 +87,7 @@ class ConversationRepository:
 
     async def list_conversations(self, owner: str, limit: int = 50, offset: int = 0) -> list[dict]:
         rows, _ = await asyncio.to_thread(
-            self._run, "SELECT * FROM conversations WHERE owner=? ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+            self._run, "SELECT * FROM conversations WHERE owner=? ORDER BY updated_at DESC, rowid DESC LIMIT ? OFFSET ?",
             (owner, limit, offset))
         return [_conv(r) for r in rows]
 
@@ -124,7 +124,10 @@ class ConversationRepository:
             "VALUES (?,?,?,?,?,?)",
             (conversation_id, role, content, status, now, json.dumps(sources) if sources else None),
             commit=True)
-        self._run("UPDATE conversations SET updated_at=? WHERE id=?", (now, conversation_id), commit=True)
+        # MAX(..., purana + 1ms): Windows par clock ~15ms ke steps mein chalti hai; barabar timestamp par
+        # "sab se naya" ka order ghalat na ho (har update purane updated_at se strictly aage jata hai)
+        self._run("UPDATE conversations SET updated_at=MAX(?, updated_at + 0.001) WHERE id=?",
+                  (now, conversation_id), commit=True)
 
     async def add_message(self, conversation_id: str, role: str, content: str,
                           status: str = "complete", sources: list[dict] | None = None) -> None:

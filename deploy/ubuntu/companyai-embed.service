@@ -1,0 +1,16 @@
+# /etc/systemd/system/companyai-embed.service   (embedding model, CPU)
+[Unit]
+Description=Company AI - llama.cpp embedding model
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=companyai
+Group=companyai
+WorkingDirectory=/opt/company-ai
+ExecStart=/opt/llama.cpp/build/bin/llama-server -m /opt/company-ai/models/Qwen3-Embedding-0.6B-Q8_0.gguf --embedding --pooling last -c 4096 -np 1 -b 2048 -ub 2048 -ngl 0 --host 172.17.0.1 --port 8082
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

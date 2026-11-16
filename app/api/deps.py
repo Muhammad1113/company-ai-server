@@ -2,6 +2,7 @@ import math
 
 from fastapi import Depends, HTTPException, Request
 
+from app.core.config import settings
 from app.core.metrics import AUTH_FAILURES, RATE_LIMITED
 from app.core.security import ClientInfo, authenticate, extract_api_key
 from app.services import container
@@ -12,12 +13,15 @@ async def get_client(request: Request) -> ClientInfo:
 
     accounts = container.accounts_repo
 
-    # Auth tab ON hai jab API keys hon YA koi user account bana ho
-    if container.api_keys or accounts.has_users:
+    # Auth tab ON hai jab API keys hon YA koi user account bana ho.
+    # APP_ENV=production mein auth HAMESHA ON (fail-closed): koi user na ho to bhi server khula nahi rehta,
+    # aur server chalte waqt script se bana user bina restart ke login kar sakta hai.
+    production = settings.APP_ENV.strip().lower() == "production"
+    if production or container.api_keys or accounts.has_users:
         token = extract_api_key(request.headers)
         info = authenticate(token, container.api_keys) if container.api_keys else None
 
-        if info is None and accounts.has_users:
+        if info is None and (production or accounts.has_users):
             user = await accounts.get_session_user(token)
             if user is not None:
                 info = ClientInfo(

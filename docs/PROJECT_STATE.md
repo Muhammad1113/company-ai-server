@@ -1,5 +1,14 @@
 # Company AI Server: Project State (naye chat mein ye paste karo)
 
+> Updated 2026-11-14. Older notes below were written during phases 1-6; this header is the current truth.
+> Roles: admin / company_admin / user (multi-company). Regulatory sync (openFDA + eCFR) with approval. Chat model: Qwen3.5-9B Q4_K_M (ctx 4096, np 1).
+> Verified on the user's machine: backend `234 passed, 3 skipped` (skipped = Postgres integration, needs TEST_DATABASE_URL);
+> frontend `node --test`: 46/46 after fixing one stale assertion (uncited document sources are now intentionally hidden).
+> 2026-11-14 (later): accounts/sessions/conversations/regulatory have PostgreSQL repositories (app/database/pg_*.py), used when DATABASE_URL is set;
+> migration script, parity + isolation tests, section-level FDA/eCFR citations, NSSM/firewall/backup scripts added. Sandbox-verified: SQLite parity scenarios,
+> Postgres repo Python logic (fake pool), 49 frontend tests. NOT verified (needs your machine): real PostgreSQL/pgvector run, full pytest, HTTPS, services,
+> backup restore, real-browser flow, accuracy on real questions.
+
 ## Stack
 Python 3.11, FastAPI + uvicorn (1 worker), httpx, prometheus_client. Windows + PowerShell + .venv.
 Chat inference: llama.cpp llama-server (Qwen3-4B-Q4_K_M, -ngl 99 -c 4096 -np 1, :8081) on GTX 1070.

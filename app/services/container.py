@@ -12,6 +12,9 @@ from app.core.ratelimit import TokenBucketLimiter
 from app.core.security import parse_api_keys
 from app.database.accounts import AccountsRepository
 from app.database.conversations import ConversationRepository
+from app.database.pg_accounts import PgAccountsRepository
+from app.database.pg_conversations import PgConversationRepository
+from app.database.pg_regulatory import PgRegulatoryRepository
 from app.database.postgres import PostgresDatabase, PostgresUsageRepository
 from app.database.regulatory import RegulatoryRepository
 from app.database.usage import UsageRepository
@@ -137,12 +140,16 @@ def _build_agent():
 
 agent = _build_agent()
 
-# Accounts + conversations abhi SQLite (DATABASE_PATH). Postgres versions agle step mein.
-accounts_repo = AccountsRepository(
-    settings.DATABASE_PATH, session_ttl_hours=settings.SESSION_TTL_HOURS
-)
-conversations_repo = ConversationRepository(settings.DATABASE_PATH)
-regulatory_repo = RegulatoryRepository(settings.DATABASE_PATH)
+# DATABASE_URL set => accounts, sessions, conversations aur regulatory records bhi PostgreSQL mein.
+# Khali => SQLite file (DATABASE_PATH): sirf development / chhota single-machine pilot.
+if db is not None:
+    accounts_repo = PgAccountsRepository(db, session_ttl_hours=settings.SESSION_TTL_HOURS)
+    conversations_repo = PgConversationRepository(db)
+    regulatory_repo = PgRegulatoryRepository(db)
+else:
+    accounts_repo = AccountsRepository(settings.DATABASE_PATH, session_ttl_hours=settings.SESSION_TTL_HOURS)
+    conversations_repo = ConversationRepository(settings.DATABASE_PATH)
+    regulatory_repo = RegulatoryRepository(settings.DATABASE_PATH)
 regulatory_service = RegulatoryService(
     regulatory_repo,
     rag_service,
@@ -201,6 +208,11 @@ async def startup():
     global _auto_sync_task
     if settings.OPENFDA_AUTO_SYNC_HOURS > 0:
         _auto_sync_task = asyncio.create_task(regulatory_service.auto_loop(settings.OPENFDA_AUTO_SYNC_HOURS))
+
+    if settings.APP_ENV.strip().lower() == "production":
+        from app.core.production import production_issues
+        for level, msg in production_issues(settings):
+            (logger.error if level == "error" else logger.warning)("production check: %s", msg)
 
     if not api_keys and not accounts_repo.has_users:
         logger.warning(

@@ -235,7 +235,15 @@ test('sources: sirf cited dikhte hain, baaqi more mein; doc ke hisaab se group',
   const g = groupByDoc(src);
   assert.equal(g.length, 1);
   assert.equal(g[0].items.length, 4);
-  assert.equal(planSources(src, 'No citations here').cited.length, 4);
+  // Citation patch: documents mile magar jawab ne cite nahi kiye => sources panel chhupa rehta hai
+  const none = planSources(src, 'No citations here');
+  assert.equal(none.hidden, true);
+  assert.equal(none.cited.length, 0);
+  // Internet links cite na hon tab bhi dikhte hain
+  const web = [{ ref: 1, kind: 'web', url: 'https://example.com/a', title: 'A' }];
+  const w = planSources(web, 'No citations here');
+  assert.equal(w.hidden, false);
+  assert.equal(w.cited.length, 1);
 });
 
 test('sources: "I do not know" jawab par bhi chhup jate hain', () => {

@@ -48,7 +48,8 @@ class ChatService:
                 "enable_thinking": False
             }
         }
-        if settings.LATIN_ONLY_OUTPUT:
+        # `grammar` llama.cpp ka apna parameter hai; vLLM / doosre OpenAI-compatible servers ko ye nahi bheja jata
+        if settings.LATIN_ONLY_OUTPUT and settings.INFERENCE_PROVIDER.lower() == "llama_cpp":
             # Hindi/Indic, Arabic/Urdu, Hebrew, Chinese/Japanese/Korean script block: 4B model aksar in mein phisal jata hai (jawab sirf English)
             payload["grammar"] = r"root ::= [^\u0590-\u06FF\u0750-\u077F\u0900-\u0DFF\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF]*"
         return payload

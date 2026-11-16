@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.database.accounts import AccountsRepository  # noqa: E402
+from app.database.factory import open_accounts  # noqa: E402
 
 
 async def main():
@@ -28,11 +28,11 @@ async def main():
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--disable", action="store_true")
     ap.add_argument("--enable", action="store_true")
-    ap.add_argument("--db", default="data/company_ai.db")
+    ap.add_argument("--db", default=None, help="SQLite file (sirf jab DATABASE_URL khali ho); default DATABASE_PATH")
     args = ap.parse_args()
 
-    repo = AccountsRepository(args.db)
-    await repo.init()
+    opened = await open_accounts(args.db)
+    repo = opened.repo
     try:
         if args.list or not args.slug:
             for c in await repo.list_companies():
@@ -50,7 +50,7 @@ async def main():
     except ValueError as exc:
         sys.exit(f"Error: {exc}")
     finally:
-        await repo.close()
+        await opened.close()
 
 
 if __name__ == "__main__":

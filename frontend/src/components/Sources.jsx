@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { clamp } from '../lib/format.js';
 import { citingText, excerptWindow, highlightRanges } from '../lib/answer.js';
-import { domainOf, groupByDoc, isWeb, planSources } from '../lib/sources.js';
+import { domainOf, groupByDoc, isWeb, planSources, sourceChip } from '../lib/sources.js';
 import { safeUrl } from '../lib/markdown.js';
 
 function Marked({ text, ranges, from, to }) {
@@ -30,7 +30,7 @@ function Passage({ s, domId, highlight, content }) {
     <li id={`${domId}-src-${s.ref}`} className={highlight === s.ref ? 'hl' : ''}>
       <span className="cite static">{s.ref}</span>
       <div className="src-body">
-        <span className="page-chip">{s.page != null ? `Page ${s.page}` : `Part ${Number(s.chunk_index) + 1}`}</span>
+        <span className="page-chip">{sourceChip(s)}</span>
         {text ? (
           <p dir="auto">
             {from > 0 ? '… ' : ''}<Marked text={text} ranges={ranges} from={from} to={to} />{to < text.length ? ' …' : ''}

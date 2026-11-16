@@ -1,8 +1,9 @@
+import hmac
 import logging
 
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
@@ -16,6 +17,7 @@ from app.api.routes.rag import router as rag_router
 from app.api.routes.regulatory import router as regulatory_router
 from app.api.routes.usage import router as usage_router
 from app.core.config import settings
+from app.core.security import extract_api_key
 from app.core.request_context import (
     RequestContextMiddleware,
     setup_logging,
@@ -81,10 +83,19 @@ if _cors_origins:
     )
 
 
-# NOTE: /metrics abhi open hai. Production mein sirf internal network /
-# Nginx allow-list se expose karo.
+# /metrics: METRICS_TOKEN set ho to Bearer token zaroori. Production mein phir bhi proxy par
+# bahar se band rakho (deploy/Caddyfile /metrics ko public nahi karta).
 @app.get("/metrics", include_in_schema=False)
-async def metrics():
+async def metrics(request: Request):
+
+    if settings.METRICS_TOKEN:
+        supplied = extract_api_key(request.headers) or ""
+        if not hmac.compare_digest(supplied.encode(), settings.METRICS_TOKEN.encode()):
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid or missing metrics token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
     return Response(
         generate_latest(),

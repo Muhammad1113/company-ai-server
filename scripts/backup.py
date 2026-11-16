@@ -1,5 +1,6 @@
 r"""
-Data ka backup (SQLite online backup: server chalte hue bhi consistent) + RAG JSON stores.
+Data ka backup (SQLite online backup: server chalte hue bhi consistent) + RAG JSON stores + reg_archive.
+PostgreSQL ka backup alag: scripts\\pg_backup.ps1 (aur restore test: scripts\\pg_restore_test.ps1).
 
   python scripts\backup.py                 -> backups\YYYYmmdd-HHMMSS\
   python scripts\backup.py --keep 30
@@ -35,6 +36,13 @@ def backup(data_dir="data", dest="backups", keep=14) -> Path:
 
     for path in data.glob("*.json"):
         shutil.copy2(path, out / path.name)
+
+    for sub in ("reg_archive",):                      # regulatory purane versions ki asli files (DB mein sirf record hai)
+        if (data / sub).is_dir():
+            shutil.copytree(data / sub, out / sub)
+    prompt = data / "system_prompt.txt"
+    if prompt.is_file():
+        shutil.copy2(prompt, out / prompt.name)
 
     for old in sorted(p for p in root.iterdir() if p.is_dir())[:-keep]:
         shutil.rmtree(old, ignore_errors=True)

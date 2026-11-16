@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.database.accounts import AccountsRepository  # noqa: E402
+from app.database.factory import open_accounts  # noqa: E402
 
 
 async def main():
@@ -30,7 +30,7 @@ async def main():
     ap.add_argument("--role", default="user", choices=["user", "company_admin", "admin"])
     ap.add_argument("--company", help="company slug (user / company_admin ke liye zaroori)")
     ap.add_argument("--collections", help="hr|finance  (sirf company-less legacy users; khali = kuch nahi)")
-    ap.add_argument("--db", default="data/company_ai.db")
+    ap.add_argument("--db", default=None, help="SQLite file (sirf jab DATABASE_URL khali ho); default DATABASE_PATH")
     ap.add_argument("--reset-password", action="store_true")
     args = ap.parse_args()
 
@@ -38,8 +38,8 @@ async def main():
     if password != getpass.getpass("Repeat password: "):
         sys.exit("Passwords do not match")
 
-    repo = AccountsRepository(args.db)
-    await repo.init()
+    opened = await open_accounts(args.db)
+    repo = opened.repo
 
     try:
         exists = any(u["username"].lower() == args.username.lower() for u in await repo.list_users())
@@ -56,7 +56,7 @@ async def main():
     except ValueError as exc:
         sys.exit(f"Error: {exc}")
     finally:
-        await repo.close()
+        await opened.close()
 
 
 if __name__ == "__main__":

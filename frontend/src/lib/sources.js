@@ -60,3 +60,11 @@ export function originOf(sources) {
 export function domainOf(url) {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }
 }
+
+// Passage ka chip: FDA/eCFR => section ("21 CFR 820.30"), PDF => "Page N", baaqi => "Part N" (chunk number)
+export function sourceChip(s) {
+  if (!s) return '';
+  if (s.section) return String(s.section);
+  if (s.page != null) return `Page ${s.page}`;
+  return `Part ${Number(s.chunk_index) + 1}`;
+}

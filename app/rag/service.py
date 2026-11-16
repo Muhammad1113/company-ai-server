@@ -3,6 +3,7 @@ import inspect
 from typing import Awaitable, Callable
 
 from app.rag.chunker import chunk_pages, chunk_text
+from app.rag.citations import section_label
 
 NO_ANSWER = "I could not find relevant information in the documents."
 
@@ -32,6 +33,7 @@ def source_entry(ref: int, h: dict) -> dict:
         "doc_id": h["doc_id"],
         "chunk_index": h["chunk_index"],
         "page": int(page) if str(page).isdigit() else None,
+        "section": section_label(h["doc_id"], h["text"]),      # FDA/eCFR: "21 CFR 820.30"; baaqi None
         "score": h["score"],
         "preview": h["text"][:700],
     }
@@ -103,7 +105,10 @@ class RagService:
         parts, used, total = [], [], 0
         for hit in hits:
             page = (hit.get("metadata") or {}).get("page")
+            section = section_label(hit["doc_id"], hit["text"])
             where = f"{hit['doc_id']}, page {page}" if page else hit["doc_id"]
+            if section:
+                where += f", {section}"
             piece = f"[{len(used) + 1}] ({where}) {hit['text']}"
             if used and total + len(piece) > self.max_context_chars:
                 break
