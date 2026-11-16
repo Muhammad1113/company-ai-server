@@ -40,6 +40,39 @@ Current capacity: one GTX 1070 = one inference slot, a pilot or one department (
 **Test status (maintainer's Windows machine).** `pytest tests -q -rs`: 254 passed, 12 skipped, 0 failed; `check_secrets.py --all` clean.
 The 12 skips are the PostgreSQL tests (`TEST_DATABASE_URL` not set); they must be run once on a machine with Docker (`scripts\setup_postgres.ps1`) or on the Ubuntu VM before go-live.
 
+## Backend Engineering & Concurrency Model
+
+This section summarises how the backend handles load, so a reviewer does not need to open `docs/ARCHITECTURE.md`. Every point names the file that implements it.
+
+**1. Async FastAPI + SSE streaming.** The API is fully `async`: HTTP connections, calls to the model servers (`httpx`), embeddings and PostgreSQL (`asyncpg`) never block the event loop, and
+answers stream token by token over Server-Sent Events (`app/api/streaming.py`). A slot is reserved *before* the response starts, so queue-full and timeout errors
+are returned as proper HTTP errors instead of a half-finished stream. A client that disconnects cancels its inference and frees the slot.
+
+**2. Bounded FIFO queue, per-user cap, backpressure** (`app/core/concurrency.py`, `app/core/fairness.py`, `app/api/errors.py`).
+| Mechanism | Behaviour | Setting |
+|---|---|---|
+| Inference slots | at most N requests run on the model at once | `INFERENCE_MAX_CONCURRENT` (default 1) |
+| FIFO wait queue | extra requests wait in arrival order; a finished request hands its slot directly to the next waiter | `INFERENCE_MAX_QUEUE_SIZE` (20) |
+| Queue full | `429` + `Retry-After` | `RETRY_AFTER_SECONDS` |
+| Waited too long | `504` | `INFERENCE_QUEUE_TIMEOUT` (60 s) |
+| Model server down | `503` | |
+| Per-user cap | one user can hold at most N requests (running + waiting) at a time, so a single user cannot fill the queue | `INFERENCE_MAX_PER_CLIENT` (2) |
+Note on fairness: this is *FIFO plus a per-user cap*, not a weighted fair scheduler. It stops one user from starving others by flooding, but a burst from many different users is served strictly in arrival order.
+Queue depth, active requests, wait time and inference time are exported as Prometheus metrics (`app/core/metrics.py`, `/metrics`, protect with `METRICS_TOKEN`).
+
+**3. Why one API worker + a central queue (hardware-aligned design).** On one GPU (GTX 1070) the bottleneck is GPU memory and compute, not Python CPU.
+The queue, the per-user counters and the slot count live in the memory of one process, so a single uvicorn worker keeps them exactly consistent and never over-subscribes the GPU
+(over-subscription is what causes out-of-memory crashes). More API workers would each run their own queue and defeat the limit.
+When the GPU is upgraded and the model is served by vLLM, which batches requests continuously on the GPU, the expected change is to raise `INFERENCE_MAX_CONCURRENT` (and `INFERENCE_MAX_QUEUE_SIZE`) in `.env` to match the server's capacity.
+The figure of 15-30 parallel requests is **an expectation, not a measurement**: the infrastructure team must confirm it with `scripts/load_test.py` on the real hardware. The same applies to the vLLM path itself (not yet tested against a real vLLM server).
+Scaling to several API processes is the one thing that needs code: queue, limiters and counters must move to Redis (see the plan above).
+
+**4. Caching, rate limiting, connection pooling.**
+- **Response cache** (`app/core/cache.py`): TTL cache with `CACHE_BACKEND=memory | redis | none`, and single-flight (identical concurrent prompts share one model call).
+  Used only by plain `/chat/completions`, where no company documents are in the prompt, so it cannot leak data between companies (`tests/test_cache_isolation.py` enforces this).
+- **Rate limiting** (`app/core/ratelimit.py`): per-client token bucket (`RATE_LIMIT_PER_MINUTE`, `RATE_LIMIT_BURST`) returning `429` + `Retry-After`; separate stricter limits for login attempts. In memory, so per process.
+- **PostgreSQL pooling** (`app/database/postgres.py`): one shared `asyncpg` pool (min 1, max 10 connections) for vectors, accounts, sessions, conversations, regulatory records and usage. Schema creation is serialised with an advisory lock so several starting processes cannot race.
+
 ## Super Admin portal (what is included)
 - **Overview**: companies, users online, usage per client, pending regulatory updates (no document content is shown).
 - **Companies**: create, edit (name, email, user limit), disable/enable (disabling logs out all its users immediately).
