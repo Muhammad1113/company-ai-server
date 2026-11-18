@@ -1,9 +1,0 @@
-# UK legislation + EU law sync (sab optional; defaults theek hain, key ki zaroorat nahi)
-# Auto check ka waqfa wohi hai jo openFDA/eCFR ka: OPENFDA_AUTO_SYNC_HOURS (>0 ho to UK/EU bhi khud check hote hain; phir bhi sirf pending banta hai)
-UK_LEGISLATION_BASE_URL=https://www.legislation.gov.uk
-UK_LEGISLATION_TIMEOUT=60
-EURLEX_BASE_URL=https://publications.europa.eu
-EURLEX_SPARQL_URL=https://publications.europa.eu/webapi/rdf/sparql
-EURLEX_TIMEOUT=90
-EURLEX_LANGUAGE=eng
-LAW_MAX_ITEMS=12
