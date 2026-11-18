@@ -1,5 +1,6 @@
 """
-FDA / eCFR passages ke liye section-level citation ("21 CFR 820.30", "510(k) K123456").
+FDA / eCFR / UK / EU passages ke liye section-level citation ("21 CFR 820.30", "510(k) K123456", "UK SI 2002/618 reg 5",
+"EU Reg 2017/745 Art 10").
 Documents mein har paragraph par [21 CFR 820.30] ya [510k:K123456] tag hota hai (app/services/ecfr.py, openfda.py render),
 yahan se usi tag se label nikalta hai. Pure function: koi I/O nahi.
 """
@@ -8,6 +9,7 @@ import re
 _CFR = re.compile(r"\[(21 CFR (?:\d+\.\d+[\w.()\-]*|Part \d+[^\]]{0,40}))\]")
 _FDA = re.compile(r"\[(510k|recall|classification):([\w.\-]{1,40})\]")
 _FDA_NAMES = {"510k": "510(k)", "recall": "Recall", "classification": "Classification"}
+_LAW = re.compile(r"\[((?:UK|EU) [^\]\n]{1,60})\]")          # [UK SI 2002/618 reg 5], [EU Reg 2017/745 Art 10]
 _MAX = 3
 
 
@@ -31,6 +33,15 @@ def section_label(doc_id: str, text: str) -> str | None:
             label = f"{_FDA_NAMES[m.group(1)]} {m.group(2)}"
             if label not in seen:
                 seen.append(label)
+        if not seen:
+            return None
+        extra = len(seen) - _MAX
+        return "; ".join(seen[:_MAX]) + (f" (+{extra} more)" if extra > 0 else "")
+    if doc_id.startswith(("uk-", "eu-")):
+        seen = []
+        for m in _LAW.finditer(text or ""):
+            if m.group(1) not in seen:
+                seen.append(m.group(1))
         if not seen:
             return None
         extra = len(seen) - _MAX

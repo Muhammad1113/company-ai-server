@@ -1,13 +1,17 @@
 # Company AI Server: Project State (naye chat mein ye paste karo)
 
 > Updated 2026-11-14. Older notes below were written during phases 1-6; this header is the current truth.
-> Roles: admin / company_admin / user (multi-company). Regulatory sync (openFDA + eCFR) with approval. Chat model: Qwen3.5-9B Q4_K_M (ctx 4096, np 1).
+> Roles: admin / company_admin / user (multi-company). Regulatory sync (openFDA + eCFR + UK legislation.gov.uk + EU EUR-Lex) with approval. Chat model: Qwen3.5-9B Q4_K_M (ctx 4096, np 1).
 > Verified on the user's machine: backend `234 passed, 3 skipped` (skipped = Postgres integration, needs TEST_DATABASE_URL);
 > frontend `node --test`: 46/46 after fixing one stale assertion (uncited document sources are now intentionally hidden).
 > 2026-11-14 (later): accounts/sessions/conversations/regulatory have PostgreSQL repositories (app/database/pg_*.py), used when DATABASE_URL is set;
 > migration script, parity + isolation tests, section-level FDA/eCFR citations, NSSM/firewall/backup scripts added. Sandbox-verified: SQLite parity scenarios,
 > Postgres repo Python logic (fake pool), 49 frontend tests. NOT verified (needs your machine): real PostgreSQL/pgvector run, full pytest, HTTPS, services,
 > backup restore, real-browser flow, accuracy on real questions.
+> 2026-11-18: UK + EU law sources added (app/services/{lawsync,uklegislation,eurlex}.py, generic `reg_tracked` table in SQLite + Postgres repos,
+> routes `/admin/regulatory/law/{uk|eu}/*` + `/admin/regulatory/pending`, region-scoped retrieval in router.py `scope_regulatory`, citations `[UK ...]`/`[EU ...]`,
+> docs/REGULATORY_SOURCES.md, tests/test_law_sources.py). Sandbox-verified with mock transport only (15 tests, httpx stubbed); NOT run against the real
+> sites, real pytest suite, or real PostgreSQL. First step on the server: `python scripts/check_live_sources.py`. EU latest-consolidated lookup (SPARQL) is a best guess.
 
 ## Stack
 Python 3.11, FastAPI + uvicorn (1 worker), httpx, prometheus_client. Windows + PowerShell + .venv.
@@ -57,10 +61,12 @@ docker-compose.db.yml       postgres+pgvector ; docker-compose.monitoring.yml  p
 - User machine: 80 pass + 3 skipped (phase5). Phase6: sandbox par accounts/conversations/sse/backup tests pass.
 ## NOT yet verified
 - frontend: sandbox mein sirf lib tests (21), JSX syntax, SSR render smoke test hue. `npm run build` aur browser mein asli chalna (login, stream, stop, regenerate, admin) user machine par pehli baar.
+- UK/EU sources against the real legislation.gov.uk / EUR-Lex (layout assumptions, EUR-Lex bot protection), tests/test_law_sources.py under real pytest, `reg_tracked` on real PostgreSQL.
 - tests/test_api_phase6.py (user machine), nginx/caddy configs, frontend.
 - tests/test_api_phase5.py (user machine par chalana hai), real Postgres/pgvector, Redis, eval on real company docs (Urdu PDFs extraction quality!), load test with auth+cache.
 
 ## Next
+00. UK/EU: run scripts/check_live_sources.py + pytest on your machine; admin portal tab for law/uk and law/eu (API only now); MHRA FSN/recalls + EUDAMED public API; notification (email/Slack) on new pending; other regions (Canada, Australia).
 0. Frontend: npm install + build + browser par test (neeche 'NOT yet verified'). GET /rag/documents backend mein nahi: admin panel mein document list nahi.
 1. Real company docs ingest + eval (30-50 questions); compare BGE-M3 / query prefix / reranker. 2. OCR for scanned PDFs (agar zaroorat).
 3. Nginx/Caddy TLS. 4. Hashed API keys in DB + admin usage overview. 5. Redis-backed limiter/cache + Postgres (multi-worker/server).

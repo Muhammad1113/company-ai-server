@@ -1,6 +1,6 @@
 """
-Regulatory service: (1) versioned documents (EU/UK/AU/... manual upload + archive), (2) openFDA sync/approval aur
-(3) eCFR (21 CFR) sync/approval.
+Regulatory service: (1) versioned documents (EU/UK/AU/... manual upload + archive), (2) openFDA sync/approval,
+(3) eCFR (21 CFR) sync/approval aur (4) law-text sources: UK legislation.gov.uk ("uk") + EUR-Lex ("eu"), wohi approval flow.
 
 Versioned document: ek doc_key (jaise "eu-mdr-2017-745") ka sirf EK version RAG index mein (active). Purane versions
 archive folder mein (asli file + nikala hua text) aur DB mein 'archived'. Restore karne par woh dobara active.
@@ -15,7 +15,7 @@ from pathlib import Path, PurePath
 
 from app.core import tenancy
 from app.rag.extractors import extract_text
-from app.services import ecfr, openfda
+from app.services import ecfr, lawsync, openfda
 
 logger = logging.getLogger("company_ai.regulatory")
 
@@ -38,8 +38,10 @@ class RegulatoryService:
 
     def __init__(self, repo, rag, archive_dir: str, client: "openfda.OpenFDAClient", *, max_codes: int = 30,
                  max_pages: int = 500, max_chars: int = 500000, ecfr_client: "ecfr.ECFRClient | None" = None,
-                 max_parts: int = 12):
+                 max_parts: int = 12, law_sources: "list[lawsync.LawSource] | None" = None):
         self.repo = repo
+        self.law_sources = {ls.name: ls for ls in (law_sources or [])}
+        self._law_locks: dict[str, asyncio.Lock] = {}
         self.ecfr_client = ecfr_client
         self.max_parts = max_parts
         self._ecfr_lock = asyncio.Lock()
@@ -200,6 +202,8 @@ class RegulatoryService:
         changes = pending["payload"]
         if pending.get("source") == "ecfr":
             return await self._approve_ecfr(pending_id, pending, by)
+        if pending.get("source") in self.law_sources:
+            return await self._approve_law(pending_id, pending, by)
         await self.repo.upsert_snapshot(changes)
         snapshot = await self.repo.snapshot()
         touched = {(c["kind"], c["code"]) for c in changes}
@@ -295,6 +299,94 @@ class RegulatoryService:
             raise RegulatoryError("this update was decided by someone else")
         return {"approved": len(changes), "documents": ingested}
 
+    # ------------------------------------------------------------------ law-text sources (UK legislation.gov.uk, EUR-Lex)
+    def _law(self, source: str) -> "lawsync.LawSource":
+        ls = self.law_sources.get(source)
+        if ls is None:
+            raise RegulatoryError(f"unknown or unconfigured law source '{source}'")
+        return ls
+
+    async def law_status(self, source: str) -> dict:
+        ls = self._law(source)
+        if not await self.repo.get_state(f"{source}_seeded"):          # pehli baar: default act(s) khud add
+            for code, label in ls.module.DEFAULT_ITEMS:
+                await self.repo.add_tracked(source, code, label)
+            await self.repo.set_state(f"{source}_seeded", True)
+        return {
+            "source": source,
+            "items": await self.repo.list_tracked(source),
+            "pending_count": await self.repo.count_pending(),
+            "last_run": await self.repo.get_state(f"{source}_last_run"),
+            "collection": ls.module.COLLECTION,
+            "max_items": ls.max_items,
+        }
+
+    async def add_law_item(self, source: str, code: str, label: str | None) -> str:
+        ls = self._law(source)
+        try:
+            code = ls.module.normalize_code(code)
+        except lawsync.LawSourceError as exc:
+            raise RegulatoryError(str(exc))
+        items = await self.repo.list_tracked(source)
+        if len(items) >= ls.max_items and code not in {i["code"] for i in items}:
+            raise RegulatoryError(f"at most {ls.max_items} items can be tracked for this source")
+        await self.repo.add_tracked(source, code, (label or "").strip()[:120] or None)
+        return code
+
+    async def remove_law_item(self, source: str, code: str) -> bool:
+        ls = self._law(source)
+        try:
+            code = ls.module.normalize_code(code)
+        except lawsync.LawSourceError:
+            return False
+        return await self.repo.remove_tracked(source, code)
+
+    async def run_law_sync(self, source: str) -> dict:
+        """Source se latest laao, section-wise farq nikaalo, pending banao. RAG ko haath nahi lagata."""
+        ls = self._law(source)
+        lock = self._law_locks.setdefault(source, asyncio.Lock())
+        if lock.locked():
+            raise RegulatoryError("a check is already running for this source")
+        async with lock:
+            items = await self.repo.list_tracked(source)
+            if not items:
+                raise RegulatoryError("add at least one item to track first")
+            names = {i["code"]: (i["label"] or ls.module.item_name(i["code"])) for i in items}
+            changes, errors, metas = await lawsync.build_changes(
+                ls.client.fetch_act, ls.module.KIND, self.repo, [i["code"] for i in items], delay=ls.client.delay)
+            pending_id = None
+            if changes:
+                pending_id = await self.repo.create_pending(lawsync.summarize(changes, metas, names), changes, source=source)
+            result = {"checked_items": len(items), "changes": len(changes), "errors": errors,
+                      "pending_id": pending_id, "versions": {c: m.get("as_of") for c, m in metas.items()}, "at": time.time()}
+            await self.repo.set_state(f"{source}_last_run", result)
+            return result
+
+    async def _approve_law(self, pending_id: int, pending: dict, by: str) -> dict:
+        source = pending["source"]
+        ls = self._law(source)
+        changes = pending["payload"]
+        metas = (pending.get("summary") or {}).get("meta") or {}
+        await self.repo.upsert_snapshot([c for c in changes if c["change"] != "removed"])
+        removed = [c["key"] for c in changes if c["change"] == "removed"]
+        if removed:
+            await self.repo.delete_snapshot(removed)
+        snapshot = await self.repo.snapshot()
+        labels = {i["code"]: i["label"] for i in await self.repo.list_tracked(source)}
+        ingested = []
+        for code in sorted({c["code"] for c in changes}):
+            records = [r for r in snapshot.values() if r["kind"] == ls.module.KIND and r["code"] == code]
+            doc_id = ls.module.doc_id_for(code)
+            if records:
+                await self.rag.ingest(doc_id, ls.module.render(code, labels.get(code), records, metas.get(code)),
+                                      ls.module.COLLECTION, {"type": source, "source": ls.module.SOURCE_HOST})
+            else:
+                await self.rag.delete(doc_id, ls.module.COLLECTION)
+            ingested.append(doc_id)
+        if not await self.repo.decide(pending_id, "approved", by):
+            raise RegulatoryError("this update was decided by someone else")
+        return {"approved": len(changes), "documents": ingested}
+
     async def auto_loop(self, hours: float):
         """Optional background check. Sirf pending banata hai; approval hamesha admin ka."""
         while True:
@@ -309,3 +401,9 @@ class RegulatoryService:
                     await self.run_ecfr_sync()
             except Exception:
                 logger.exception("eCFR auto check failed")
+            for name in self.law_sources:
+                try:
+                    if await self.repo.list_tracked(name):
+                        await self.run_law_sync(name)
+                except Exception:
+                    logger.exception("%s auto check failed", name)

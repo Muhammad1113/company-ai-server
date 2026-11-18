@@ -139,6 +139,14 @@ class Settings(BaseSettings):
     ECFR_TITLE: int = 21
     ECFR_TIMEOUT: float = 60.0                     # Part bade hote hain (807, 878), is liye lamba timeout
     ECFR_MAX_PARTS: int = 12
+    # UK legislation (legislation.gov.uk) aur EU law (EUR-Lex/CELLAR): free, koi key nahi. Isi approval flow se reg__uk / reg__eu mein jate hain.
+    UK_LEGISLATION_BASE_URL: str = "https://www.legislation.gov.uk"
+    UK_LEGISLATION_TIMEOUT: float = 60.0
+    EURLEX_BASE_URL: str = "https://publications.europa.eu"
+    EURLEX_SPARQL_URL: str = "https://publications.europa.eu/webapi/rdf/sparql"
+    EURLEX_TIMEOUT: float = 90.0
+    EURLEX_LANGUAGE: str = "eng"
+    LAW_MAX_ITEMS: int = 12                        # har source (uk / eu) mein itne acts/CELEX track ho sakte hain
 
     # --- Accounts / sessions ---------------------------------------------
     SESSION_TTL_HOURS: float = 168          # 7 din

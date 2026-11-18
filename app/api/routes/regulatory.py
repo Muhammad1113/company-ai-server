@@ -1,10 +1,11 @@
 """
-Super admin: regulatory documents (versions/archive), openFDA aur eCFR (21 CFR) sync ka approval.
+Super admin: regulatory documents (versions/archive), openFDA, eCFR (21 CFR) aur law-text sources (UK legislation.gov.uk,
+EUR-Lex) sync ka approval.
 Company users is router tak pahunch hi nahi sakte (require_admin). Neeche sab kuch public regulatory data hai.
 """
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field
 
 from app.api.deps import require_admin
@@ -190,3 +191,54 @@ async def ecfr_sync_now(admin: ClientInfo = Depends(require_admin)):
 @router.get("/ecfr/pending")
 async def ecfr_list_pending(history: bool = False):
     return {"updates": await container.regulatory_repo.list_pending(include_decided=history, source="ecfr")}
+
+
+# ---------- law-text sources: UK legislation.gov.uk ("uk") aur EUR-Lex ("eu") ----------
+# Pending ka detail/approve/reject wohi /openfda/pending/{id}/... endpoints hain (service pending.source dekh kar sahi raasta leta hai).
+_LAW_SOURCE = r"^(uk|eu)$"
+
+
+class LawItemBody(BaseModel):
+    code: str = Field(min_length=3, max_length=300)       # uk: uksi/2002/618 ya legislation.gov.uk link; eu: CELEX ya EUR-Lex link
+    label: str | None = Field(default=None, max_length=120)
+
+
+@router.get("/pending")
+async def all_pending(history: bool = False):
+    """Ek hi inbox: openFDA, eCFR, UK, EU ke saare pending updates."""
+    return {"updates": await container.regulatory_repo.list_pending(include_decided=history)}
+
+
+@router.get("/law/{source}")
+async def law_status(source: str = Path(pattern=_LAW_SOURCE)):
+    return await _guard(_svc().law_status(source))
+
+
+@router.post("/law/{source}/items", status_code=201)
+async def law_add_item(body: LawItemBody, source: str = Path(pattern=_LAW_SOURCE),
+                       admin: ClientInfo = Depends(require_admin)):
+    code = await _guard(_svc().add_law_item(source, body.code, body.label))
+    await audit.record(admin, "regulatory.law_item_add", target=f"{source}:{code}")
+    return {"code": code}
+
+
+@router.delete("/law/{source}/items/{code:path}")
+async def law_remove_item(code: str, source: str = Path(pattern=_LAW_SOURCE),
+                          admin: ClientInfo = Depends(require_admin)):
+    if not await _svc().remove_law_item(source, code):
+        raise HTTPException(404, "Item not found")
+    await audit.record(admin, "regulatory.law_item_remove", target=f"{source}:{code}")
+    return {"removed": code}
+
+
+@router.post("/law/{source}/sync")
+async def law_sync_now(source: str = Path(pattern=_LAW_SOURCE), admin: ClientInfo = Depends(require_admin)):
+    """Source se check karo. Sirf 'pending' banta hai; approve hone tak kuch bhi RAG mein nahi jata."""
+    result = await _guard(_svc().run_law_sync(source))
+    await audit.record(admin, "regulatory.law_sync", target=source, detail={"changes": result.get("changes")})
+    return result
+
+
+@router.get("/law/{source}/pending")
+async def law_list_pending(history: bool = False, source: str = Path(pattern=_LAW_SOURCE)):
+    return {"updates": await container.regulatory_repo.list_pending(include_decided=history, source=source)}

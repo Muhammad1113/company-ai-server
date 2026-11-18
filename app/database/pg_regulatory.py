@@ -46,6 +46,10 @@ CREATE TABLE IF NOT EXISTS openfda_state (k TEXT PRIMARY KEY, v TEXT);
 CREATE TABLE IF NOT EXISTS ecfr_parts (
     part TEXT PRIMARY KEY, label TEXT, added_at DOUBLE PRECISION NOT NULL
 );
+CREATE TABLE IF NOT EXISTS reg_tracked (
+    source TEXT NOT NULL, code TEXT NOT NULL, label TEXT, added_at DOUBLE PRECISION NOT NULL,
+    PRIMARY KEY (source, code)
+);
 """
 _VCOLS = ",".join(_VERSION_COLS)
 
@@ -139,6 +143,22 @@ class PgRegulatoryRepository:
 
     async def remove_part(self, part: str) -> bool:
         return _count(await self.db.pool.execute("DELETE FROM ecfr_parts WHERE part=$1", part)) > 0
+
+    # ---------- tracked items of law-text sources (uk / eu) ----------
+    async def list_tracked(self, source: str) -> list[dict]:
+        rows = await self.db.pool.fetch(
+            "SELECT code, label, added_at FROM reg_tracked WHERE source=$1 ORDER BY code", source)
+        return [{"code": r[0], "label": r[1], "added_at": r[2]} for r in rows]
+
+    async def add_tracked(self, source: str, code: str, label: str | None):
+        await self.db.pool.execute(
+            "INSERT INTO reg_tracked (source, code, label, added_at) VALUES ($1,$2,$3,$4) "
+            "ON CONFLICT (source, code) DO UPDATE SET label=EXCLUDED.label, added_at=EXCLUDED.added_at",
+            source, code, label, time.time())
+
+    async def remove_tracked(self, source: str, code: str) -> bool:
+        return _count(await self.db.pool.execute(
+            "DELETE FROM reg_tracked WHERE source=$1 AND code=$2", source, code)) > 0
 
     # ---------- snapshot / ignored ----------
     async def snapshot(self) -> dict[str, dict]:

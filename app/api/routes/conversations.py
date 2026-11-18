@@ -16,7 +16,7 @@ from app.services.agent import with_clock
 from app.services.messages import build_messages
 from app.services.router import (
     about_bot_signal, chitchat_or_task, company_fact_signal, contextual_text, docs_min_score, expand_terms, is_reformat_request,
-    regulatory_signal, roman_urdu_signal, topic_overlap,
+    regulatory_signal, roman_urdu_signal, scope_regulatory, topic_overlap,
 )
 from app.services.tools import run_tools
 
@@ -178,6 +178,8 @@ async def conversation_chat(
                 if regulatory_signal(question) or regulatory_signal(retrieval_query):
                     # FDA / regulation / qanoon: pehle hamesha shared reg__* documents (openFDA, eCFR, EU/UK/AU)
                     reg_names = [n for n in names if n.startswith("reg__")]
+                    # UK / EU / FDA: sawal jis region ka ho sirf usi ki reg__* collections (warna sab)
+                    reg_names = scope_regulatory(reg_names, question, retrieval_query)
                     found = await rag.search_many(retrieval_query, reg_names) if reg_names else []
                     hits = [h for h in found if h["score"] >= min_score]
                 if not hits:

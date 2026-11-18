@@ -7,6 +7,7 @@ Regulatory data (SQLite, stdlib): versioned documents (EU/UK/AU/...) aur openFDA
 - openfda_pending  : approval ka intezar karte updates (super admin dekh kar approve/reject karta hai)
 - openfda_ignored  : reject kiye hue (key, hash) -> dobara propose nahi hote
 - ecfr_parts       : eCFR (21 CFR) ke jin parts ko track karna hai (snapshot/pending/ignored openFDA ke saath shared; pending.source se alag)
+- reg_tracked      : naye law-text sources (UK legislation.gov.uk = "uk", EUR-Lex = "eu") ke tracked items (source, code, label)
 """
 import asyncio
 import json
@@ -55,6 +56,10 @@ CREATE TABLE IF NOT EXISTS openfda_pending (
 CREATE TABLE IF NOT EXISTS openfda_state (k TEXT PRIMARY KEY, v TEXT);
 CREATE TABLE IF NOT EXISTS ecfr_parts (
     part TEXT PRIMARY KEY, label TEXT, added_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS reg_tracked (
+    source TEXT NOT NULL, code TEXT NOT NULL, label TEXT, added_at REAL NOT NULL,
+    PRIMARY KEY (source, code)
 );
 """
 
@@ -179,6 +184,23 @@ class RegulatoryRepository:
         def go():
             with self._lock:
                 cur = self._conn.execute("DELETE FROM ecfr_parts WHERE part=?", (part,))
+                self._conn.commit()
+                return cur.rowcount
+        return bool(await asyncio.to_thread(go))
+
+    # ---------- tracked items of law-text sources (uk / eu) ----------
+    async def list_tracked(self, source: str) -> list[dict]:
+        rows = await self._run("SELECT code, label, added_at FROM reg_tracked WHERE source=? ORDER BY code", (source,))
+        return [{"code": r[0], "label": r[1], "added_at": r[2]} for r in rows]
+
+    async def add_tracked(self, source: str, code: str, label: str | None):
+        await self._run("INSERT OR REPLACE INTO reg_tracked (source, code, label, added_at) VALUES (?,?,?,?)",
+                        (source, code, label, time.time()), commit=True)
+
+    async def remove_tracked(self, source: str, code: str) -> bool:
+        def go():
+            with self._lock:
+                cur = self._conn.execute("DELETE FROM reg_tracked WHERE source=? AND code=?", (source, code))
                 self._conn.commit()
                 return cur.rowcount
         return bool(await asyncio.to_thread(go))

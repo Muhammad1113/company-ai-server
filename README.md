@@ -1,7 +1,7 @@
 # MetaXpert Company AI
 
 Private, self-hosted AI assistant for sales teams: multi-company document Q&A (RAG), a Super Admin portal,
-and regulatory knowledge (US openFDA + eCFR Title 21) that is synced **only after an admin approves it**.
+and regulatory knowledge (US openFDA + eCFR Title 21, UK legislation.gov.uk, EU EUR-Lex) that is synced **only after an admin approves it**.
 Runs on your own hardware with llama.cpp; no company document leaves the server.
 
 > **Status: production-ready code, awaiting your verification.** Everything is on PostgreSQL when `DATABASE_URL` is set.
@@ -12,7 +12,7 @@ Runs on your own hardware with llama.cpp; no company document leaves the server.
 - **Multi-company isolation**: each company gets `co_<slug>__docs`; shared regulatory data lives in `reg__*` (read-only for companies). Deny by default.
 - **Roles**: `admin` (Super Admin), `company_admin`, `user`. Scrypt password hashing, hashed session tokens, login rate limiting.
 - **RAG chat** with streaming (SSE), citations, follow-up handling, stop/regenerate, per-user conversation history.
-- **Regulatory sync**: openFDA + eCFR (21 CFR) → pending queue → admin approval → versioned, restorable documents.
+- **Regulatory sync**: openFDA + eCFR (21 CFR) + UK legislation.gov.uk + EU EUR-Lex → pending queue → admin approval → versioned, restorable documents. Questions that name a region (EU, UK, FDA/US) only search that region's `reg__*` collections. See `docs/REGULATORY_SOURCES.md`.
 - **Operations**: request IDs, Prometheus metrics, usage report, backups, FIFO inference queue with per-user fairness.
 
 ## Architecture & Future Infrastructure Plan
@@ -80,6 +80,8 @@ Scaling to several API processes is the one thing that needs code: queue, limite
 - **Documents**: list per company collection, view chunks/pages, upload, delete.
 - **Regulatory**: EU/UK/AU/... versioned documents (upload, archive, restore, retire, view text); openFDA product codes and eCFR parts
   (21 CFR 801/807/820/878 by default) with *Check now* -> pending queue -> approve/reject.
+  UK (UK MDR 2002) and EU (MDR 2017/745) law sync the same way, article by article, through the API
+  (`/api/v1/admin/regulatory/law/{uk|eu}/*`, one inbox at `/api/v1/admin/regulatory/pending`); the admin portal screen for them is not built yet.
 - **Audit log** (super admin, `GET /api/v1/admin/audit`): who did what and when: sign-ins and failed sign-ins (with IP), password changes/resets, user and company create/edit/disable, document add/delete, attempts to open another company's collection (`access.denied`), sign-out, and every regulatory action (sync, approve, reject, version upload/restore/retire). Stored in the same database (PostgreSQL or SQLite); passwords and document/chat content are never recorded; entries older than `AUDIT_RETENTION_DAYS` (default 365, 0 = keep forever) are purged at startup. Writing an audit entry never fails the request (errors are logged).
 - Not included yet: permanent deletion of users/companies (they are disabled, not deleted).
 
@@ -146,7 +148,8 @@ All settings are environment variables / `.env` (see `app/core/config.py`). The 
 - The Postgres repositories pass the same scenario tests as SQLite in the sandbox, but the real-PostgreSQL run is **yours to do** (`scripts\setup_postgres.ps1`).
 - Answers come from a small local model: regulatory answers must be verified before they reach a customer.
 - `LATIN_ONLY_OUTPUT=true` prevents Urdu-script answers (Roman Urdu is fine).
-- openFDA / eCFR citations show the section (`21 CFR 807.87`, `510(k) K123456`) once those documents are re-approved/re-ingested; older chunks fall back to "Part N".
+- openFDA / eCFR citations show the section (`21 CFR 807.87`, `510(k) K123456`) once those documents are re-approved/re-ingested; older chunks fall back to "Part N". UK/EU show `UK SI 2002/618 reg 5` / `EU Reg 2017/745 Art 10`.
+- UK/EU sync was written and tested in a sandbox with mock responses only. Before relying on it run `python scripts/check_live_sources.py` on the server (it calls the real sites). EU consolidated text is informational (the Official Journal is authentic); UK text can lag very recent amendments.
 - Since 2 Feb 2026 Part 820 is the QMSR with only six sections (820.1, .3, .7, .10, .35, .45); old numbers such as 820.30 no longer exist.
 
 ## Postgres migration (existing SQLite pilot data)

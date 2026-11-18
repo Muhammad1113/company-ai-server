@@ -27,6 +27,8 @@ from app.rag.store import JsonVectorStore
 from app.services.agent import Agent, make_llm_classifier
 from app.services.chat_service import chat_service
 from app.services.ecfr import ECFRClient
+from app.services import eurlex, uklegislation
+from app.services.lawsync import LawSource
 from app.services.openfda import OpenFDAClient
 from app.services.regulatory import RegulatoryService
 from app.services.websearch import WebSearch
@@ -163,6 +165,15 @@ regulatory_service = RegulatoryService(
     max_chars=settings.RAG_MAX_FILE_CHARS,
     ecfr_client=ECFRClient(settings.ECFR_BASE_URL, settings.ECFR_TITLE, settings.ECFR_TIMEOUT),
     max_parts=settings.ECFR_MAX_PARTS,
+    law_sources=[
+        LawSource("uk", uklegislation,
+                  uklegislation.UKLegislationClient(settings.UK_LEGISLATION_BASE_URL, settings.UK_LEGISLATION_TIMEOUT),
+                  settings.LAW_MAX_ITEMS),
+        LawSource("eu", eurlex,
+                  eurlex.EurLexClient(settings.EURLEX_BASE_URL, settings.EURLEX_SPARQL_URL, settings.EURLEX_TIMEOUT,
+                                      language=settings.EURLEX_LANGUAGE),
+                  settings.LAW_MAX_ITEMS),
+    ],
 )
 _auto_sync_task = None
 client_limiter = ClientConcurrencyLimiter(settings.INFERENCE_MAX_PER_CLIENT)

@@ -77,13 +77,49 @@ def company_fact_signal(text: str) -> bool:
 # "abhi / current / latest" lagne se bhi internet ki taraf nahi bhejte: pehle hamesha yeh documents search hote hain.
 _REGULATORY = re.compile(
     r"\b(fda|21 ?cfr|e?cfr|qmsr|510\(?k\)?|premarket|pma|udi|mdr|ivdr|mdsap|mhra|tga|iso ?13485|"
-    r"regulations?|regulatory|laws?|qanoon|qawaneen|compliance|compliant|labell?ing|recalls?|product codes?|"
+    r"regulations?|regulatory|legislation|ukca|eudamed|mdcg|notified bod\w+|laws?|qanoon|qawaneen|compliance|compliant|"
+    r"labell?ing|recalls?|product codes?|"
     r"device class\w*|classification|establishment registration|device listing|ce[- ]mark\w*)\b", re.I)
 
 
 def regulatory_signal(text: str) -> bool:
     """True: sawal FDA / regulation / qanoon ka hai (reg__* documents pehle)."""
     return bool(_REGULATORY.search(text))
+
+
+# Sawal kis mulk / region ke qanoon ka hai: reg__fda, reg__eu, reg__uk, reg__au. Region na mile to sab reg__* search hote hain.
+_REGIONS = {
+    "fda": re.compile(r"\b(fda|u\.?s\.?a|united states|america\w*|21 ?cfr|e?cfr|qmsr|510\(?k\)?|pma|premarket|openfda)\b", re.I),
+    "eu": re.compile(r"\b(eu|e\.u\.|europe\w*|ce[- ]?mark\w*|mdr|ivdr|eudamed|mdcg|notified bod\w+|eur-?lex)\b", re.I),
+    "uk": re.compile(r"\b(uk|u\.k\.|united kingdom|great britain|britain|british|england|ukca|mhra)\b", re.I),
+    "au": re.compile(r"\b(tga|australia\w*|artg)\b", re.I),
+}
+_UK_MDR = re.compile(r"\buk[\s-]*mdr\b", re.I)                    # "UK MDR 2002" UK ka qanoon hai, EU ka nahi
+_REGION_ALIASES = {"us": "fda", "usa": "fda", "gb": "uk", "europe": "eu"}
+
+
+def regulatory_regions(text: str) -> set[str]:
+    """Sawal mein jin regions ka zikr hai: {"fda","eu","uk","au"}. Khali set = koi region nahi bataya."""
+    t = text or ""
+    found = {name for name, pat in _REGIONS.items() if name != "eu" and pat.search(t)}
+    if _REGIONS["eu"].search(_UK_MDR.sub(" ", t)):
+        found.add("eu")
+    return found
+
+
+def collection_region(name: str) -> str:
+    base = re.split(r"[-_:.]", (name or "").lower().removeprefix("reg__"), maxsplit=1)[0]
+    return _REGION_ALIASES.get(base, base)
+
+
+def scope_regulatory(names: list[str], *texts: str) -> list[str]:
+    """reg__* collections ko sawal ke region tak mehdood karo (pehla text jis mein region ho). Koi region ya koi match na ho to sab."""
+    for text in texts:
+        regions = regulatory_regions(text)
+        if regions:
+            scoped = [n for n in names if collection_region(n) in regions]
+            return scoped or names
+    return names
 
 
 # Pichle jawab par hukm: "roman urdu mai batao", "short karo", "english mein", "dobara samjhao". Naya sawal nahi hai:
