@@ -263,6 +263,139 @@ function Ecfr({ onPendingChanged }) {
   );
 }
 
+// UK (legislation.gov.uk) aur EU (EUR-Lex): ek hi component, config se alag. Approve/reject/detail dono ka wohi raasta hai.
+const LAW = {
+  uk: {
+    title: 'UK law (legislation.gov.uk)',
+    hint: 'The actual UK law text from legislation.gov.uk (The National Archives, free, no key needed). Nothing reaches the chatbot until you approve it. Each regulation is read separately, so Review shows which parts are new, changed or removed. The text can lag very recent amendments.',
+    label: 'Act or SI', placeholder: 'e.g. uksi/2002/618 or a legislation.gov.uk link', example: 'e.g. UK MDR 2002', empty: 'No UK law items yet.',
+    button: 'Check UK law now', checking: 'Checking UK law…', versionWord: 'text retrieved',
+  },
+  eu: {
+    title: 'EU law (EUR-Lex)',
+    hint: 'The actual EU law text from EUR-Lex (Publications Office of the EU, free, no key needed). A base CELEX number such as 32017R0745 follows the latest consolidated version automatically. Consolidated text is informational; the Official Journal is authentic. Nothing reaches the chatbot until you approve it.',
+    label: 'CELEX number', placeholder: 'e.g. 32017R0745', example: 'e.g. EU MDR', empty: 'No EU law items yet.',
+    button: 'Check EU law now', checking: 'Checking EU law…', versionWord: 'version',
+  },
+};
+
+function LawSource({ source, onPendingChanged }) {
+  const cfg = LAW[source];
+  const { push } = useToast();
+  const [status, setStatus] = useState(null);
+  const [pending, setPending] = useState([]);
+  const [open, setOpen] = useState(null);          // {id, changes}
+  const [code, setCode] = useState('');
+  const [label, setLabel] = useState('');
+  const [busy, setBusy] = useState('');
+  const [reject, setReject] = useState(null);
+  const notify = useRef(onPendingChanged);
+  notify.current = onPendingChanged;
+
+  const load = useCallback(async () => {
+    try {
+      const [st, list] = await Promise.all([api.regLaw(source), api.regLawPending(source)]);
+      setStatus(st); setPending(list); notify.current?.(st.pending_count);
+    } catch (err) {
+      if (err?.status !== 401) push(describeError(err, `Could not load ${source.toUpperCase()} law settings`), 'error');
+    }
+  }, [push, source]);
+  useEffect(() => { load(); }, [load]);
+
+  async function run(name, fn, okMessage) {
+    setBusy(name);
+    try { const res = await fn(); if (okMessage) push(okMessage(res), 'success'); await load(); return res; }
+    catch (err) { if (err?.status !== 401) push(describeError(err, 'Action failed'), 'error'); return null; }
+    finally { setBusy(''); }
+  }
+
+  const addItem = async (e) => {
+    e.preventDefault();
+    if (code.trim().length < 3) return push(`Enter the ${cfg.label.toLowerCase()}.`, 'error');
+    if (await run('add', () => api.regLawAdd(source, code.trim(), label.trim()))) { setCode(''); setLabel(''); }
+  };
+  const sync = () => run('sync', () => api.regLawSync(source), (r) => (r.changes
+    ? `${r.changes} update${r.changes === 1 ? '' : 's'} found. Review them below.`
+    : r.errors?.length ? 'The source could not be read for some items. See the last check.' : 'No changes since the last approved text.'));
+  const review = async (id) => {
+    if (open?.id === id) return setOpen(null);
+    try { const d = await api.regPendingDetail(id); setOpen({ id, changes: d.payload }); }
+    catch (err) { push(describeError(err, 'Could not load the update'), 'error'); }
+  };
+  const approve = (id) => run(`ok${id}`, () => api.regApprove(id), (r) => `Approved. ${r.documents.length} law document(s) updated.`).then(() => setOpen(null));
+  const doReject = async () => {
+    const id = reject; setReject(null);
+    await run(`no${id}`, () => api.regReject(id), () => 'Rejected. These exact sections will not be proposed again.');
+    setOpen(null);
+  };
+
+  const last = status?.last_run;
+  const versions = last?.versions ? Object.entries(last.versions).filter(([, v]) => v) : [];
+  return (
+    <div className="panel">
+      <h3>{cfg.title}</h3>
+      <p className="hint">{cfg.hint}</p>
+      {status && (
+        <>
+          <ul className="chips">
+            {status.items.map((c) => (
+              <li key={c.code} className="chip">
+                <strong>{c.code}</strong>{c.label ? ` ${c.label}` : ''}{' '}
+                <button type="button" className="link-btn" aria-label={`Remove ${c.code}`} disabled={!!busy}
+                  onClick={() => run('rm', () => api.regLawRemove(source, c.code))}>×</button>
+              </li>
+            ))}
+            {!status.items.length && <li className="muted small">{cfg.empty}</li>}
+          </ul>
+          <form className="grid2" onSubmit={addItem}>
+            <label>{cfg.label}<input value={code} onChange={(e) => setCode(e.target.value)} maxLength={300} placeholder={cfg.placeholder} /></label>
+            <label>Label (optional)<input value={label} onChange={(e) => setLabel(e.target.value)} maxLength={120} placeholder={cfg.example} /></label>
+            <div className="row-actions">
+              <button type="submit" className="btn" disabled={!!busy}>Add</button>
+              <button type="button" className="btn primary" disabled={!!busy || !status.items.length} onClick={sync}>
+                {busy === 'sync' ? cfg.checking : cfg.button}
+              </button>
+            </div>
+          </form>
+          <p className="hint">
+            Last check: {when(last?.at)}{last ? ` · ${last.changes} update(s)` : ''}
+            {versions.length ? ` · ${cfg.versionWord}: ${versions.map(([c, v]) => `${c} ${v}`).join(', ')}` : ''}.
+            {' '}Adds to collection <strong>{status.collection}</strong>; every company can read it.
+          </p>
+          {last?.errors?.length > 0 && (
+            <p className="form-error small">Problems: {last.errors.slice(0, 3).map((e) => `${e.code}: ${e.error}`).join('; ')}</p>
+          )}
+        </>
+      )}
+
+      <h3>Waiting for approval</h3>
+      {!pending.length && <p className="muted">Nothing waiting.</p>}
+      <ul className="rows">
+        {pending.map((p) => (
+          <li key={p.id}>
+            <div className="row-main">
+              <div>
+                <strong>{p.summary.new} new, {p.summary.changed} changed{p.summary.removed ? `, ${p.summary.removed} removed` : ''}</strong>
+                <div className="muted small">Found {when(p.created_at)} · {Object.keys(p.summary.by_code).join(', ')}</div>
+              </div>
+              <div className="row-actions">
+                <button type="button" className="btn" onClick={() => review(p.id)}>{open?.id === p.id ? 'Hide' : 'Review'}</button>
+                <button type="button" className="btn primary" disabled={!!busy} onClick={() => approve(p.id)}>Approve</button>
+                <button type="button" className="btn danger" disabled={!!busy} onClick={() => setReject(p.id)}>Reject</button>
+              </div>
+            </div>
+            {open?.id === p.id && <Changes changes={open.changes} />}
+          </li>
+        ))}
+      </ul>
+      {reject && (
+        <Confirm title={`Reject these ${source.toUpperCase()} law updates?`} message="They will not be added, and these exact sections will not be proposed again unless the law text changes."
+          confirmLabel="Reject" onConfirm={doReject} onClose={() => setReject(null)} busy={false} />
+      )}
+    </div>
+  );
+}
+
 function Versions() {
   const { push } = useToast();
   const [versions, setVersions] = useState(null);
@@ -335,7 +468,7 @@ function Versions() {
   return (
     <div className="panel form">
       <h3>Versioned documents (EU, UK, AU…)</h3>
-      <p className="hint">The UK (MHRA) and Australia (TGA) publish no free official feed, so these are uploaded by hand, like the EU. A new version replaces the old one in answers; the old one stays in the archive and can be restored.</p>
+      <p className="hint">UK and EU law text is synced automatically above. Use this for what has no free feed: guidance documents (MHRA, MDCG), Australia (TGA) and other regions, uploaded by hand. A new version replaces the old one in answers; the old one stays in the archive and can be restored.</p>
       <form className="form" onSubmit={submit}>
         <div className="grid2">
           <label>Region
@@ -409,6 +542,8 @@ export default function RegulatoryTab({ onPendingChanged }) {
     <div className="tab">
       <OpenFda onPendingChanged={onPendingChanged} />
       <Ecfr onPendingChanged={onPendingChanged} />
+      <LawSource source="uk" onPendingChanged={onPendingChanged} />
+      <LawSource source="eu" onPendingChanged={onPendingChanged} />
       <Versions />
     </div>
   );

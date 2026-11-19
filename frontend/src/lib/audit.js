@@ -36,6 +36,9 @@ const LABELS = {
   'regulatory.cfr_part_add': 'Added CFR part',
   'regulatory.cfr_part_remove': 'Removed CFR part',
   'regulatory.ecfr_sync': 'Checked eCFR',
+  'regulatory.law_item_add': 'Added UK/EU law item',
+  'regulatory.law_item_remove': 'Removed UK/EU law item',
+  'regulatory.law_sync': 'Checked UK/EU law',
   'regulatory.approve': 'Approved update',
   'regulatory.reject': 'Rejected update',
 };

@@ -5,6 +5,8 @@ import { actionLabel, actorLabel, detailText, AUDIT_GROUPS } from '../src/lib/au
 test('known actions get a readable label, unknown ones fall back safely', () => {
   assert.equal(actionLabel('user.password_reset'), 'Reset password of');
   assert.equal(actionLabel('regulatory.approve'), 'Approved update');
+  assert.equal(actionLabel('regulatory.law_sync'), 'Checked UK/EU law');
+  assert.equal(actionLabel('regulatory.law_item_add'), 'Added UK/EU law item');
   assert.equal(actionLabel('something.new_thing'), 'something new thing');
   assert.equal(actionLabel(undefined), '');
 });

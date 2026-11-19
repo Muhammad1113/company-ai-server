@@ -129,6 +129,12 @@ export function createApi({ baseUrl = '/api/v1', getToken = () => null, onUnauth
     regPendingDetail: (id) => json('GET', `/admin/regulatory/openfda/pending/${id}`),
     regApprove: (id) => json('POST', `/admin/regulatory/openfda/pending/${id}/approve`),
     regReject: (id) => json('POST', `/admin/regulatory/openfda/pending/${id}/reject`),
+    // UK legislation.gov.uk ('uk') aur EU EUR-Lex ('eu'): approve/reject/detail wohi regApprove/regReject/regPendingDetail
+    regLaw: (src) => json('GET', `/admin/regulatory/law/${src}`),
+    regLawAdd: (src, code, label) => json('POST', `/admin/regulatory/law/${src}/items`, { body: { code, label: label || null } }),
+    regLawRemove: (src, code) => json('DELETE', `/admin/regulatory/law/${src}/items/${String(code).split('/').map(q).join('/')}`),
+    regLawSync: (src) => json('POST', `/admin/regulatory/law/${src}/sync`),
+    regLawPending: (src) => json('GET', `/admin/regulatory/law/${src}/pending`).then((r) => r.updates),
 
     // company admin: sirf apni company
     companyGet: () => json('GET', '/company'),
