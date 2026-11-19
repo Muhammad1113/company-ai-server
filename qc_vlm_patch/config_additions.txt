@@ -1,0 +1,11 @@
+    # --- Vision model (scanned / figure PDFs) -----------------------------------------
+    # off | scanned (sirf kam-text pages) | figures (scanned + bari image/table/drawing wale pages) | all (har page)
+    VLM_MODE: str = "off"
+    VLM_BASE_URL: str = ""          # khali => LLAMA_BASE_URL (wahi llama-server jo --mmproj ke saath chale)
+    VLM_MODEL: str = ""             # khali => LLAMA_MODEL
+    VLM_MIN_TEXT_CHARS: int = 200   # is se kam text wala page "scanned/figure page" maana jata hai
+    VLM_MIN_PATHS: int = 150        # itne vector lines/shapes => drawing ya table
+    VLM_MAX_PAGES: int = 30         # ek document mein zyada se zyada itne pages VLM se padhe jayen
+    VLM_MAX_SIDE: int = 1280        # page image ki lambi side (px). Bari = zyada tokens/VRAM
+    VLM_MAX_TOKENS: int = 700
+    VLM_TIMEOUT: float = 300.0      # ek page ke liye seconds

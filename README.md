@@ -170,3 +170,14 @@ Idempotent (safe to re-run). `usage_log` is not copied. Keep `data/company_ai.db
 
 ## License
 No license file yet: all rights reserved by the company until one is added.
+
+## Vision (VLM) Support: Active
+
+Multimodal ingestion is enabled so scanned PDFs, surgical catalogs, and engineering drawings are converted into searchable text during upload via pp/rag/vision.py.
+
+| Component | Value / File | Role |
+|-----------|--------------|------|
+| Chat + Vision Model | models/Qwen3.5-9B-Q4_K_M.gguf (5.29 GB) | Unified text & vision inference (--mmproj enabled in scripts/start_all.ps1) |
+| Vision Projector | models/mmproj-BF16.gguf (0.86 GB) | Enables image encoding in llama-server (.gguf files remain local, excluded from Git) |
+| Ingestion Mode | VLM_MODE=figures (.env) | Runs VLM on scanned pages and pages with figures/tables/drawings during upload |
+| Test Status | 295 passed, 14 skipped | Includes 	ests/test_vision.py (7 VLM ingestion & page-citation tests) |

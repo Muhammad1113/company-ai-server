@@ -22,7 +22,7 @@ function Start-Window($title, $command) {
     Start-Process powershell -ArgumentList @("-NoExit", "-Command", $full)
 }
 
-Start-Window "llama CHAT :8081" "& '$LlamaServer' -m '$ChatModel' -ngl 99 -c 4096 -np 1 --host $LlamaHost --port 8081"
+Start-Window "llama CHAT :8081" "& '$LlamaServer' -m '$ChatModel' --mmproj 'models\mmproj-BF16.gguf' -ngl 99 -c 4096 -np 1 --host $LlamaHost --port 8081"
 
 if (-not $NoEmbedding) {
     Start-Window "llama EMBEDDING :8082" "& '$LlamaServer' -m '$EmbedModel' --embedding --pooling $EmbedPooling -c 4096 -np 1 -b 2048 -ub 2048 -ngl 0 --host $LlamaHost --port 8082"
