@@ -1,0 +1,22 @@
+# PostgreSQL + pgvector only (dev / host-run API).  docker compose -f docker-compose.db.yml up -d
+# Password comes from .env: POSTGRES_PASSWORD=<alphanumeric only>
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: company_ai
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: company_ai
+    ports:
+      - "127.0.0.1:5432:5432"      # localhost only
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U company_ai -d company_ai"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

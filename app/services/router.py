@@ -82,9 +82,15 @@ _REGULATORY = re.compile(
     r"device class\w*|classification|establishment registration|device listing|ce[- ]mark\w*)\b", re.I)
 
 
+# "Class Is / Class Ir / Class IIa", "Annex VIII", "Rule 6 classification": in lafzon par bhi reg__* pehle (pehle sirf "device class"
+# ya "classification" likha hone par hi regulatory maana jata tha, "forceps Class Ir notified body" nikal jata tha).
+_REG_CLASS = re.compile(r"\bclass\s+(?:i[smr]?|ii[ab]?|iii)\b|\bannex\s+[ivx]{1,5}\b|\bnotified\s+bod", re.I)
+
+
 def regulatory_signal(text: str) -> bool:
     """True: sawal FDA / regulation / qanoon ka hai (reg__* documents pehle)."""
-    return bool(_REGULATORY.search(text))
+    t = text or ""
+    return bool(_REGULATORY.search(t) or _REG_CLASS.search(t))
 
 
 # Sawal kis mulk / region ke qanoon ka hai: reg__fda, reg__eu, reg__uk, reg__au. Region na mile to sab reg__* search hote hain.
@@ -94,6 +100,7 @@ _REGIONS = {
     "uk": re.compile(r"\b(uk|u\.k\.|united kingdom|great britain|britain|british|england|ukca|mhra)\b", re.I),
     "au": re.compile(r"\b(tga|australia\w*|artg)\b", re.I),
 }
+_EU_STRONG = re.compile(r"\b(eu|e\.u\.|europe\w*|ce[- ]?mark\w*|ivdr|eudamed|mdcg|notified bod\w+|eur-?lex)\b", re.I)
 _UK_MDR = re.compile(r"\buk[\s-]*mdr\b", re.I)                    # "UK MDR 2002" UK ka qanoon hai, EU ka nahi
 _REGION_ALIASES = {"us": "fda", "usa": "fda", "gb": "uk", "europe": "eu"}
 
@@ -102,8 +109,11 @@ def regulatory_regions(text: str) -> set[str]:
     """Sawal mein jin regions ka zikr hai: {"fda","eu","uk","au"}. Khali set = koi region nahi bataya."""
     t = text or ""
     found = {name for name, pat in _REGIONS.items() if name != "eu" and pat.search(t)}
-    if _REGIONS["eu"].search(_UK_MDR.sub(" ", t)):
-        found.add("eu")
+    eu_text = _UK_MDR.sub(" ", t)
+    if _REGIONS["eu"].search(eu_text):
+        # "FDA MDR report" = US Medical Device Reporting (21 CFR 803), EU nahi: akeela "mdr" + FDA => EU nahi
+        if not ("fda" in found and not _EU_STRONG.search(eu_text)):
+            found.add("eu")
     return found
 
 
@@ -112,14 +122,24 @@ def collection_region(name: str) -> str:
     return _REGION_ALIASES.get(base, base)
 
 
-def scope_regulatory(names: list[str], *texts: str) -> list[str]:
-    """reg__* collections ko sawal ke region tak mehdood karo (pehla text jis mein region ho). Koi region ya koi match na ho to sab."""
+def explicit_regions(*texts: str) -> set[str]:
+    """Pehle text ke regions jis mein koi region likha ho (sawal pehle, phir follow-up context). Khali = koi region nahi."""
     for text in texts:
         regions = regulatory_regions(text)
         if regions:
-            scoped = [n for n in names if collection_region(n) in regions]
-            return scoped or names
-    return names
+            return regions
+    return set()
+
+
+def scope_regulatory(names: list[str], *texts: str, strict: bool = False) -> list[str]:
+    """reg__* collections ko sawal ke region tak mehdood karo (pehla text jis mein region ho). Koi region na ho to sab.
+    Region ho magar uski collection maujood na ho: strict=False => sab (purana), strict=True => [] (doosre region ka data
+    kabhi nahi: EU poochha to US FDA jawab nahi aana chahiye)."""
+    regions = explicit_regions(*texts)
+    if not regions:
+        return names
+    scoped = [n for n in names if collection_region(n) in regions]
+    return scoped if (scoped or strict) else names
 
 
 # Pichle jawab par hukm: "roman urdu mai batao", "short karo", "english mein", "dobara samjhao". Naya sawal nahi hai:

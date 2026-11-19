@@ -1,0 +1,8 @@
+# --- .env mein ye lines ADD karo (jab Postgres use karna ho) -------------------
+POSTGRES_PASSWORD=sirf_letters_aur_digits_wala_strong_password
+DATABASE_URL=postgresql://company_ai:sirf_letters_aur_digits_wala_strong_password@127.0.0.1:5432/company_ai
+RAG_STORE_BACKEND=pgvector
+RAG_EMBED_DIM=1024
+# Qwen3-Embedding-0.6B aur BGE-M3 dono 1024 dim hain. Dusra model ho to uski dim likho.
+
+# Wapas SQLite + JSON par jane ke liye: DATABASE_URL khali karo aur RAG_STORE_BACKEND=json

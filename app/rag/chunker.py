@@ -1,5 +1,23 @@
 import re
 
+# Regulatory render har paragraph par [tag] lagata hai. Annex VIII ka har Rule ("... Annex VIII Rule 6") apna alag chunk
+# hona chahiye: warna Rule 5 ka aakhri hissa + Rule 6 + Rule 7 ek chunk mein mil kar ranking kharab karte hain.
+_TAG = re.compile(r"^\[([^\]\n]{1,80})\]")
+_RULE_TAG = re.compile(r"\bRule \d{1,2}$")
+
+
+def _tag(unit: str) -> str | None:
+    m = _TAG.match(unit)
+    return m.group(1) if m else None
+
+
+def _hard_break(prev: str | None, tag: str | None) -> bool:
+    """True: tag badla aur dono mein se ek Rule-tag hai (tag-less tukde = pichle ka hissa, break nahi)."""
+    if tag is None or prev is None or tag == prev:
+        return False
+    return bool(_RULE_TAG.search(tag) or _RULE_TAG.search(prev))
+
+
 
 def chunk_text(text: str, size: int = 800, overlap: int = 100) -> list[str]:
     """
@@ -24,9 +42,14 @@ def chunk_text(text: str, size: int = 800, overlap: int = 100) -> list[str]:
 
     chunks: list[str] = []
     current = ""
+    last_tag: str | None = None
 
     for unit in units:
-        if not current:
+        tag = _tag(unit)
+        if current and _hard_break(last_tag, tag):
+            chunks.append(current)                      # naya Rule: pichle chunk ki overlap saath nahi
+            current = unit
+        elif not current:
             current = unit
         elif len(current) + 2 + len(unit) <= size:
             current += "\n\n" + unit
@@ -36,6 +59,7 @@ def chunk_text(text: str, size: int = 800, overlap: int = 100) -> list[str]:
             if tail and " " in tail:
                 tail = tail[tail.index(" ") + 1:]
             current = f"{tail}\n\n{unit}" if tail else unit
+        last_tag = tag or last_tag
 
     if current:
         chunks.append(current)

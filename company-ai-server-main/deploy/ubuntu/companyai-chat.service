@@ -1,0 +1,19 @@
+# /etc/systemd/system/companyai-chat.service   (llama.cpp chat model, GPU)
+# Binary ko pehle build karo (CUDA): docs/UBUNTU_DEPLOYMENT.md. Paths apne hisaab se badlo.
+[Unit]
+Description=Company AI - llama.cpp chat model
+After=network-online.target nvidia-persistenced.service
+Wants=network-online.target
+
+[Service]
+User=companyai
+Group=companyai
+WorkingDirectory=/opt/company-ai
+# 172.17.0.1 = docker0: sirf Docker containers pohanch sakte hain, LAN nahi. API host par chalaoge to 127.0.0.1 karo.
+ExecStart=/opt/llama.cpp/build/bin/llama-server -m /opt/company-ai/models/Qwen3.5-9B-Q4_K_M.gguf -ngl 99 -c 4096 -np 1 --host 172.17.0.1 --port 8081
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

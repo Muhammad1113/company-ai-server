@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: company-ai
+    metrics_path: /metrics
+    static_configs:
+      # Docker Desktop (Windows): host machine ka FastAPI.
+      # uvicorn ko --host 0.0.0.0 se chalana hoga (127.0.0.1 par container nahi pahunch sakta).
+      - targets: ["host.docker.internal:8000"]

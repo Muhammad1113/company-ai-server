@@ -12,6 +12,12 @@
 > routes `/admin/regulatory/law/{uk|eu}/*` + `/admin/regulatory/pending`, region-scoped retrieval in router.py `scope_regulatory`, citations `[UK ...]`/`[EU ...]`,
 > docs/REGULATORY_SOURCES.md, tests/test_law_sources.py). Sandbox-verified with mock transport only (15 tests, httpx stubbed); NOT run against the real
 > sites, real pytest suite, or real PostgreSQL. First step on the server: `python scripts/check_live_sources.py`. EU latest-consolidated lookup (SPARQL) is a best guess.
+> 2026-11-19: EU MDR retrieval fixes. (1) Region lock: a question that names EU/CE/MDR/notified body never searches reg__fda (the old "no hits -> search all
+> collections" fallback leaked US Class 1 / recall data); logic in app/services/regsearch.py + router.py (`explicit_regions`, `scope_regulatory(strict=True)`,
+> "FDA MDR report" no longer counts as EU). (2) Annex VIII is split per Rule 1..22 (eurlex.py `_RULE_HEAD`, key `...-annex-viii-rule-6`, tag `[EU Reg 2017/745 Annex VIII Rule 6]`),
+> chunker.py never merges two Rules into one chunk, classification questions get a larger candidate pool and Annex VIII is ranked above Annex I.
+> **Needs on the server:** `python scripts/check_live_sources.py` (must print 22/22 Annex VIII rules), then EU sync + admin approve to re-ingest `reg__eu`.
+> Sandbox-verified only: tests/test_eu_retrieval.py (13) with stubbed httpx/pytest; real EUR-Lex layout NOT tested. Phase-2 plan: docs/MULTIMODAL_DRAWING_PLAN.md.
 
 ## Stack
 Python 3.11, FastAPI + uvicorn (1 worker), httpx, prometheus_client. Windows + PowerShell + .venv.

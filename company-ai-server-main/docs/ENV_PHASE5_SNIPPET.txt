@@ -1,0 +1,12 @@
+# --- .env mein ye (optional) lines ADD karo --------------------------------------
+# System prompt (har chat request ke saath jata hai):
+CHAT_SYSTEM_PROMPT=You are the company assistant. Answer briefly and clearly. If you are not sure, say so.
+
+# API_KEYS mein collection-level access (4th part: hr|finance ya * = sab):
+#   API_KEYS=admin:KEY1:admin,hr_team:KEY2:user:hr|policies,staff:KEY3:user:policies
+# Role user + koi collections nahi => sab collections padh sakta hai. Restrict karna ho to list do.
+
+# Upload limits (defaults):
+# RAG_MAX_UPLOAD_MB=20
+# RAG_MAX_PDF_PAGES=500
+# RAG_MAX_FILE_CHARS=500000

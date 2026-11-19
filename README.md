@@ -104,7 +104,7 @@ scripts/        create_company.py, create_user.py, preflight.py, check_secrets.p
                 pg_backup.ps1, pg_restore_test.ps1, backup.py, install_services.ps1 (NSSM), lock_ports.ps1,
                 rag_eval.py, load_test.py, start_all.ps1, watchdog.ps1 ...
 deploy/         Caddyfile (Docker), Caddyfile.host (Windows host), Dockerfile.web
-docs/           API.md, ARCHITECTURE.md, DEPLOYMENT.md, SECURITY.md, PRODUCTION_CHECKLIST.md, PROJECT_STATE.md
+docs/           API.md, ARCHITECTURE.md, DEPLOYMENT.md, SECURITY.md, PRODUCTION_CHECKLIST.md, PROJECT_STATE.md, MULTIMODAL_DRAWING_PLAN.md (Phase 2 plan)
 eval/sample/    tiny pipeline check (NOT an accuracy benchmark)
 eval/regulatory/ starter FDA/eCFR question set (verify with your regulatory lead)
 Dockerfile, docker-compose.yml (production), docker-compose.db.yml (Postgres only), .env.example, .env.production.example

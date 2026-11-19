@@ -16,8 +16,9 @@ from app.services.agent import with_clock
 from app.services.messages import build_messages
 from app.services.router import (
     about_bot_signal, chitchat_or_task, company_fact_signal, contextual_text, docs_min_score, expand_terms, is_reformat_request,
-    regulatory_signal, roman_urdu_signal, scope_regulatory, topic_overlap,
+    regulatory_signal, roman_urdu_signal, topic_overlap,
 )
+from app.services.regsearch import lock_collections, search_regulatory
 from app.services.tools import run_tools
 
 logger = logging.getLogger("company_ai.conversations")
@@ -176,14 +177,13 @@ async def conversation_chat(
                 names = [n for n in (await rag.stats())["collections"] if client.can_access(n)]
                 found, hits = [], []
                 if regulatory_signal(question) or regulatory_signal(retrieval_query):
-                    # FDA / regulation / qanoon: pehle hamesha shared reg__* documents (openFDA, eCFR, EU/UK/AU)
-                    reg_names = [n for n in names if n.startswith("reg__")]
-                    # UK / EU / FDA: sawal jis region ka ho sirf usi ki reg__* collections (warna sab)
-                    reg_names = scope_regulatory(reg_names, question, retrieval_query)
-                    found = await rag.search_many(retrieval_query, reg_names) if reg_names else []
-                    hits = [h for h in found if h["score"] >= min_score]
-                if not hits:
-                    found = await rag.search_many(retrieval_query, names)
+                    # FDA / regulation / qanoon: pehle shared reg__* (openFDA, eCFR, EU/UK/AU). Sawal jis region ka ho sirf usi
+                    # ki reg__* (EU poochha to reg__eu; US FDA kabhi mix nahi), fallback bhi us region lock ke andar.
+                    res = await search_regulatory(rag, names, question, retrieval_query, min_score)
+                    found, hits = res["found"], res["hits"]
+                else:
+                    scoped_names = lock_collections(names, question, retrieval_query)   # region likha ho to bhi lock
+                    found = await rag.search_many(retrieval_query, scoped_names)
                     hits = [h for h in found if h["score"] >= min_score]
                 top = found[0]["score"] if found else None
                 if hits and company_fact_signal(question) and not chitchat_or_task(question):

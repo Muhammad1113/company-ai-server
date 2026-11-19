@@ -63,6 +63,10 @@ async def check_uk(code: str) -> bool:
     return len(records) > 1 and meta.get("parsed", True)
 
 
+def act_is_mdr(code: str) -> bool:
+    return eurlex.act_id(eurlex.normalize_code(code)) == "32017R0745"
+
+
 async def check_eu(code: str) -> bool:
     client = eurlex.EurLexClient(settings.EURLEX_BASE_URL, settings.EURLEX_SPARQL_URL, settings.EURLEX_TIMEOUT,
                                  language=settings.EURLEX_LANGUAGE)
@@ -73,6 +77,13 @@ async def check_eu(code: str) -> bool:
         return False
     arts = [r for r in records if r["data"]["section"].startswith("Art ")]
     annexes = [r for r in records if r["data"]["section"].startswith("Annex")]
+    rules = sorted({int(r["data"]["section"].rsplit(" ", 1)[1]) for r in records if r["data"]["section"].startswith("Annex VIII Rule ")})
+    if act_is_mdr(code):
+        missing = [n for n in range(1, eurlex.MAX_RULE + 1) if n not in rules]
+        print(f"[{'FAIL' if missing else ' OK '}] EU MDR Annex VIII: {len(rules)}/{eurlex.MAX_RULE} classification rules split into "
+              f"separate records" + (f"; missing Rule {missing}. Layout of Annex VIII changed? (check _RULE_HEAD in eurlex.py)" if missing else ""))
+        if missing:
+            return False
     print(f"[ OK ] EUR-Lex: CELEX {meta['celex']} (version {meta['as_of']}, consolidated={meta['consolidated']}): "
           f"{len(records)} records, {len(arts)} articles, {len(annexes)} annexes, structure parsed={meta.get('parsed', True)}")
     return len(arts) > 0 and meta.get("parsed", True)

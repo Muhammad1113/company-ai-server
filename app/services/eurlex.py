@@ -35,6 +35,13 @@ _MIN_TEXT_CHARS = 2000                   # is se kam text = error / bot-check pa
 
 _ART = re.compile(r"^Article\s+(\d+[a-z]{0,2})$", re.I)
 _ANNEX = re.compile(r"^ANNEX\s+([IVXLCDM]+[A-Z]?)$")
+# Annex VIII (classification rules): har Rule (1..22) alag record, taake "Rule 6" ka chunk apna ho aur Annex I ke labelling
+# text se ranking mein na dabe. Rule heading kabhi "Rule 6", kabhi "5.2. Rule 6" (table row), kabhi "Rule 6 All surgically ...".
+_RULE_HEAD = re.compile(r"^(?:\d{1,2}(?:\.\d{1,2})*\.?\s*)?Rule\s+(\d{1,2})\.?$", re.I)
+_RULE_LEAD = re.compile(r"^(?:\d{1,2}(?:\.\d{1,2})*\.?\s*)?Rule\s+(\d{1,2})\s*[.:\u2013\u2014-]?\s+(\S.*)$", re.I)
+_CHAPTER = re.compile(r"^CHAPTER\s+([IVX]+)\b\s*(.*)$")
+_SECTION_NUM = re.compile(r"^\d{1,2}\.\s*[A-Z][A-Z0-9 ,;:'()/\u2013\u2014-]{3,}$")      # "5. INVASIVE DEVICES"
+MAX_RULE = 22                                                                      # MDR Annex VIII: Rule 1 .. Rule 22
 _MARK = re.compile(r"[\u25ba\u25bc\u25c4\u25b2]\s*[A-Z]\d{0,3}")        # consolidated text ke amendment nishan (M1, B ...)
 _BRACKETS = re.compile(r"[\[\]]")
 _TYPE_WORDS = {"R": "Reg", "L": "Dir", "D": "Dec", "H": "Rec"}
@@ -174,6 +181,7 @@ def parse_xhtml(html: str, code: str) -> tuple[list[dict], dict]:
     cur = {"kind": "preamble", "section": "Preamble", "key": f"{base}-preamble", "heading": "", "context": "", "lines": []}
     context, pending_ctx = "", []
     found_structure = False
+    a8 = {"on": False, "title": "", "chapter": "", "section": "", "chapter_title_next": False, "last_rule": 0, "rules": 0, "sec": 0}
 
     def close():
         text = "\n".join(cur["lines"])
@@ -181,11 +189,24 @@ def parse_xhtml(html: str, code: str) -> tuple[list[dict], dict]:
             data = {"act": act, "section": cur["section"], "heading": cur["heading"][:300], "context": cur["context"][:200]}
             records.extend(make_records(KIND, code, unique_key(seen, cur["key"]), data, text))
 
+    def a8_context() -> str:
+        return " - ".join(x for x in ("Annex VIII", a8["title"], a8["chapter"], a8["section"]) if x)
+
+    def a8_rule(n: int, lead: str = ""):
+        nonlocal cur
+        close()
+        a8["last_rule"], a8["rules"] = n, a8["rules"] + 1
+        cur = {"kind": "annex", "section": f"Annex VIII Rule {n}", "key": f"{base}-annex-viii-rule-{n}",
+               "heading": f"Rule {n}", "context": a8_context(), "lines": [lead] if lead else []}
+
     for cls, t in blocks:
         art, annex = _ART.match(t), _ANNEX.match(t)
+        rule_head = _RULE_HEAD.match(t) if a8["on"] else None
+        rule_lead = _RULE_LEAD.match(t) if a8["on"] and not rule_head else None
         if art:
             close()
             found_structure = True
+            a8["on"] = False
             n = art.group(1)
             cur = {"kind": "article", "section": f"Art {n}", "key": f"{base}-art-{n.lower()}", "heading": "",
                    "context": context, "lines": []}
@@ -193,13 +214,38 @@ def parse_xhtml(html: str, code: str) -> tuple[list[dict], dict]:
             close()
             found_structure = True
             r = annex.group(1)
+            a8.update(on=(r == "VIII"), title="", chapter="", section="", chapter_title_next=False, last_rule=0)
             cur = {"kind": "annex", "section": f"Annex {r}", "key": f"{base}-annex-{r.lower()}", "heading": "",
                    "context": "", "lines": []}
+        elif rule_head and a8["last_rule"] < int(rule_head.group(1)) <= MAX_RULE:
+            a8_rule(int(rule_head.group(1)))
+        elif rule_lead and int(rule_lead.group(1)) == a8["last_rule"] + 1 <= MAX_RULE:
+            a8_rule(int(rule_lead.group(1)), rule_lead.group(2))
+        elif a8["on"] and _CHAPTER.match(t):                       # "CHAPTER III" (+ title agar usi block mein ho)
+            m = _CHAPTER.match(t)
+            a8["chapter"], a8["chapter_title_next"] = t, not m.group(2)
+            a8["section"] = ""
+            cur["lines"].append(t)
+        elif a8["on"] and a8["chapter_title_next"] and len(t) <= 120 and t == t.upper():
+            a8["chapter"] = f"{a8['chapter']} {t}"
+            a8["chapter_title_next"] = False
+            cur["lines"].append(t)
+        elif a8["on"] and a8["last_rule"] and _SECTION_NUM.match(t):   # rules ke beech section heading ("6. ACTIVE DEVICES")
+            close()
+            a8["section"] = t
+            a8["sec"] += 1
+            cur = {"kind": "annex", "section": "Annex VIII", "key": f"{base}-annex-viii-rule-{a8['last_rule']}-x{a8['sec']}",
+                   "heading": "", "context": a8_context(), "lines": []}
+        elif a8["on"] and _SECTION_NUM.match(t):
+            a8["section"] = t
+            cur["lines"].append(t)
         elif cur["kind"] == "article" and cls.endswith("sti-art") and not cur["heading"] and not cur["lines"]:
             cur["heading"] = t
         elif (cur["kind"] == "annex" and not cur["heading"] and not cur["lines"] and len(t) <= 250
               and any(w in cls for w in ("grseq", "annex", "doc-ti", "title"))):
             cur["heading"] = t
+            if a8["on"] and not a8["title"]:
+                a8["title"] = t
         elif cls.endswith("ti-section-1") and cur["kind"] != "annex":
             pending_ctx = [t]
             context = t
@@ -215,6 +261,7 @@ def parse_xhtml(html: str, code: str) -> tuple[list[dict], dict]:
                                {"act": act, "section": "Full text", "heading": "", "context": ""},
                                "\n".join(t for _, t in blocks))
         meta["parsed"] = False
+    meta["annex_viii_rules"] = a8["rules"]                    # MDR ke liye 22 hona chahiye (live check script dekhta hai)
     return records, meta
 
 
@@ -299,7 +346,7 @@ def _order(key: str):
     if k.endswith("-preamble"):
         return 0, 0, []
     if "-annex-" in k:
-        roman = k.split("-annex-", 1)[1].split("-p")[0]
+        roman = re.split(r"-(?:p\d|rule-|sec-)", k.split("-annex-", 1)[1])[0]      # "viii-rule-6-p2" -> "viii"
         return 2, _roman_value(roman), natural_key(k)
     return 1, 0, natural_key(k)
 

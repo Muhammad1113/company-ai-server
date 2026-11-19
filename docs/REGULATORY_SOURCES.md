@@ -22,7 +22,15 @@ Items: `GET /admin/regulatory/law/uk` (default UK MDR 2002), `POST .../law/uk/it
 
 ## Region-aware jawab
 Sawal mein UK / EU / FDA (ya MHRA, CE mark, UKCA, ...) ho to sirf usi region ki `reg__*` collections search hoti hain.
-Region na ho to sab. "UK MDR 2002" UK gina jata hai, EU nahi.
+Region na ho to sab. "UK MDR 2002" UK gina jata hai, EU nahi. "FDA MDR report" (21 CFR 803) EU nahi gina jata.
+Region saaf ho to **fallback bhi usi region mein rehta hai**: EU poochha aur `reg__eu` mein kuch na mila to US FDA ka jawab nahi diya jata
+(company ki apni documents collections ab bhi dekhi jati hain). Code: `app/services/regsearch.py`.
+
+## EU MDR Annex VIII (classification rules)
+`eurlex.py` Annex VIII ko **Rule 1..22 mein alag records** mein todta hai (`eurlex:32017R0745-annex-viii-rule-6`, citation `[EU Reg 2017/745 Annex VIII Rule 6]`),
+har record ke saath chapter/section context. `chunker.py` do Rules ko ek chunk mein nahi milata. Classification ke sawal (Class I/Is/Im/Ir/IIa, "Rule 6", "Annex VIII")
+par retrieval bara candidate pool leta hai aur Annex VIII ko Annex I (labelling) se upar rakhta hai. Deploy ke baad: `python scripts/check_live_sources.py`
+(22/22 rules), phir EU sync + approve taake `reg__eu` dobara ingest ho.
 
 ## Hifazatein
 * Kuch RAG mein admin approval ke baghair nahi jata.
